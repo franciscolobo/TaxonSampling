@@ -1,5 +1,5 @@
                        README for Taxon Sampling
-             (last updated 05/29/2019 - mm/dd/yyyy format)
+             (last updated 09/23/2019 - mm/dd/yyyy format)
 
 AUTHORS
 -=-=-=-
@@ -13,10 +13,10 @@ Francisco Pereira Lobo (franciscolobo@gmail.com, francisco.lobo@embrapa.br)
 1 - DESCRIPTION
 -=-=-=-=-=-=-=-
 
-Taxon Sampling samples a given amount of taxon IDs, attempting to maximize
-either taxonomic balance (minimize bias towards the most abundant taxa) or
-diversity (attempt to cover the most taxa in each taxonomic level).
-
+Taxon Sampling takes as input NCBI Taxonomy and a database of taxon IDs and
+their associated sequences and samples a given amount of sequence records 
+while maximizing taxonomic diversity by attempting to cover the most taxa
+in each taxonomic level.
 
 2 - HOW TO USE
 -=-=-=-=-=-=-=-

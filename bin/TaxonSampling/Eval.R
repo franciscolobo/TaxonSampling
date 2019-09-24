@@ -1,18 +1,18 @@
 # For parallel processing. for a serial run, do "cores <- 1"
-#suppressMessages(library("foreach"))
-#suppressMessages(library("doParallel"))
+suppressMessages(library("foreach"))
+suppressMessages(library("doParallel"))
 #
-#cores <- 1
-#if (cores > 1) {
-#  cl <- makeCluster(cores)
-#  registerDoParallel(cl)
-#}
+cores <- 3
+if (cores > 1) {
+  cl <- makeCluster(cores)
+  registerDoParallel(cl)
+}
 #
-#comb <- function(x, ...) {
-#  lapply(seq_along(x),
-#    function(i) c(x[[i]], lapply(list(...), function(y) y[[i]])))
-#}
-#
+comb <- function(x, ...) {
+  lapply(seq_along(x),
+    function(i) c(x[[i]], lapply(list(...), function(y) y[[i]])))
+}
+
 #oper <- foreach(i=1:10, .combine='comb', .multicombine=TRUE,
 #                .init=list(list(), list())) %dopar% {
 #  list(i+2, i+3)
@@ -22,7 +22,7 @@
 #                              "Evaluate_TS", "TS_TaxonomyData",
 #                              "TS_Algorithm")) %dopar% {
 
-n <- 100
+n <- 10
 x <- c(50, 100, 150, 200, 250, 300, 350, 400)
 
 library("ggplot2")
@@ -163,26 +163,26 @@ randomCI <- list()
 
 for (level in 3:5) {
   diversityMeans[[level]] <- colMeans(outputDiversity[[level]])
-  balanceMeans[[level]] <- colMeans(outputBalance[[level]])
+#  balanceMeans[[level]] <- colMeans(outputBalance[[level]])
   randomMeans[[level]] <- colMeans(outputRandom[[level]])
 
   diversityCI[[level]] <- apply(outputDiversity[[level]], 2, sd)
-  balanceCI[[level]] <- apply(outputBalance[[level]], 2, sd)
+#  balanceCI[[level]] <- apply(outputBalance[[level]], 2, sd)
   randomCI[[level]] <- apply(outputRandom[[level]], 2, sd)
 
   diversityCI[[level]] <- diversityCI[[level]]/sqrt(n)
-  balanceCI[[level]] <- balanceCI[[level]]/sqrt(n)
+#  balanceCI[[level]] <- balanceCI[[level]]/sqrt(n)
   randomCI[[level]] <- randomCI[[level]]/sqrt(n)
 
   diversityCI[[level]] <- qt(confidence, df = n-1) * diversityCI[[level]]
-  balanceCI[[level]] <- qt(confidence, df = n-1) * balanceCI[[level]]
+#  balanceCI[[level]] <- qt(confidence, df = n-1) * balanceCI[[level]]
   randomCI[[level]] <- qt(confidence, df = n-1) * randomCI[[level]]
 }
 
 
 for (level in 3:5) {
   df <- data.frame(x, diversityMeans = diversityMeans[[level]], 
-                      balanceMeans = balanceMeans[[level]],
+#                      balanceMeans = balanceMeans[[level]],
                       randomMeans = randomMeans[[level]],
                       totalTaxa = rep(totalTaxa[level], 8))
   
@@ -194,11 +194,11 @@ for (level in 3:5) {
           geom_errorbar(aes(ymin=diversityMeans - diversityCI[[level]],
                             ymax=diversityMeans + diversityCI[[level]],
                             colour = "TSdiversity"), width=1) +
-          geom_point(aes(y=balanceMeans, colour="TSbalance")) +
-          geom_line(aes(y=balanceMeans, colour="TSbalance")) + 
-          geom_errorbar(aes(ymin=balanceMeans - balanceCI[[level]],
-                            ymax=balanceMeans + balanceCI[[level]],
-                            colour = "TSbalance"), width=1) +
+#          geom_point(aes(y=balanceMeans, colour="TSbalance")) +
+#          geom_line(aes(y=balanceMeans, colour="TSbalance")) + 
+#          geom_errorbar(aes(ymin=balanceMeans - balanceCI[[level]],
+#                            ymax=balanceMeans + balanceCI[[level]],
+#                            colour = "TSbalance"), width=1) +
           geom_point(aes(y=randomMeans, colour="RS")) +
           geom_line(aes(y=randomMeans, colour="RS")) +
           geom_errorbar(aes(ymin=randomMeans - randomCI[[level]],
@@ -209,7 +209,7 @@ for (level in 3:5) {
           xlab("m") + ylab(paste0("# taxa (level = ", level, ")")) +
           scale_color_manual("Method",
                              values = c("TSdiversity" = "orange",
-                                        "TSbalance" = "red",
+#                                        "TSbalance" = "red",
                                         "RS" = "blue",
                                         "max" = "black")))
   dev.off()

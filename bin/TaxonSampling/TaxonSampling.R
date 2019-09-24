@@ -51,6 +51,8 @@ WriteFasta <- function(idsFile, multifasta, outputIDs, outFile = "output") {
 #  sequences <- read.dna(multifasta, "fasta", as.character = TRUE)
   x <- sequences[input[is.element(input[, 1], outputIDs), 2]]
   x <- lapply(x, toupper)
+  input2 <- input[(input[,2] %in% names(x)),]
+  names(x) <- paste0(input2[,2], "|TaxID:", input2[,1])
 #  write.dna(x, outFile, "fasta", nbcol = -1, colsep = "")
   write.fasta(x, names(x), outFile)
 }
@@ -75,6 +77,7 @@ TS_TaxonomyData <- function(idsFile, nodes) {
   #                      created by TS_TaxonomyData().
   
   # Get ids to search
+#  ids <- idsFile
   if (!is.null(idsFile) & isTRUE(file.exists(as.character(idsFile)))) {
     ids <- read.table(idsFile, sep = "\t", header = FALSE, comment.char = "")
     ids <- ids[, 1]
@@ -130,7 +133,7 @@ Simplify_Nodes <- function(nodes, countIDs) {
   #   nodes: (data.frame) simplified nodes parameter.
 
   # Reduce the node information to the necessary only, reduces search time.
-  nodes <- nodes[is.element(nodes$id, names(countIDs)), 1:2]
+  nodes <- nodes[is.element(nodes$id, as.numeric(names(countIDs))), 1:2]
   return(nodes)
 }
 
@@ -174,6 +177,7 @@ TS_Algorithm_Recursion <- function(taxon, m, nodes, countIDs,
   }
   
   # First step: Find the sub-taxa (children nodes) of the current taxon
+  # that has members in user-provided data
   taxon <- as.integer(taxon)
   children <- nodes$id[nodes$parent == taxon & nodes$id != taxon]
   children <- intersect(children, names(countIDs))
@@ -423,6 +427,7 @@ TS_Algorithm <- function(taxon, m, nodes, countIDs, method = "diversity",
       requireIDs <- TS_TaxonomyData(requireIDs, nodes)
     } else {
       requireIDs <- NULL
+#      print("Here!")
     }
   }
   
@@ -468,7 +473,7 @@ RandomSampling <- function(idsFile, nodes, n = 100) {
   # Get ids to search
   if (!is.null(idsFile) & isTRUE(file.exists(as.character(idsFile)))) {
     ids <- read.table(idsFile, sep = "\t", header = FALSE, comment.char = "",
-                      colClasses = "integer", strip.white = TRUE)
+                      strip.white = TRUE)
     ids <- ids[, 1]
   } else {
     ids <- as.integer(idsFile)  # assume it's a test.name or back.name, for now
@@ -492,7 +497,6 @@ RandomSampling <- function(idsFile, nodes, n = 100) {
   # Random sampling
   randomIDs <- sample(ids, n)
   return(randomIDs)
-
 }
 
 
