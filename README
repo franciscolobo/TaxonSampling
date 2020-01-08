@@ -1,5 +1,5 @@
                        README for Taxon Sampling
-             (last updated 09/23/2019 - mm/dd/yyyy format)
+             (last updated 08/01/2020 - mm/dd/yyyy format)
 
 AUTHORS
 -=-=-=-
@@ -24,13 +24,14 @@ in each taxonomic level.
 2.1 - INSTALL
 -=-=-=-=-=-=-
 
-Taxon Sampling only requires the CHNOSZ and ape R packages. To install them:
+Taxon Sampling requires the CHNOSZ, ape and seqinr R packages. To install them:
 
   install.packages("CHNOSZ")
   install.packages("ape")
+  install.packages("seqinr")
 
-Additionally, Taxon Sampling requires the NCBI taxonomy files. Download the
-taxdump.tar.gz from ftp://ftp.ncbi.nih.gov/pub/taxonomy/ and uncompress it.
+Additionally, Taxon Sampling requires the NCBI Taxonomy files. To obtain them,
+execute install.sh (with writing permissions in TaxonSampling root directory).
 
 
 2.2 - PREPARING INPUT FILES 

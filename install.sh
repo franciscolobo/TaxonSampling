@@ -12,5 +12,5 @@ tar -xvzf taxdump/new_taxdump.tar.gz
 
 mv *dmp taxdump/
 
-rm new_taxdump.tar.gz
+rm taxdump/new_taxdump.tar.gz
 

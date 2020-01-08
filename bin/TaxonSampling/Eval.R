@@ -7,6 +7,7 @@ source("bin/TaxonSampling/TaxonSampling.R")
 #Number of bootstraps
 n <- 100
 
+#x axis values when plotting results
 x <- c(50, 100, 150, 200, 250, 300, 350, 400)
 
 #where should we start looking?

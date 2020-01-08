@@ -23,9 +23,9 @@ m <- 200
 
 ignoreIDs <- NULL
 
-requireIDs <- NULL
+#requireIDs <- NULL
 
-#requireIDs <- c(2026169, 8364, 57393, 241292, 61967)
+requireIDs <- c(2026169, 8364, 57393, 241292, 61967)
 
 ignoreNonLeafID <- NULL
 
