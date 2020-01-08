@@ -86,13 +86,10 @@ Set the following parameters in the beginning of the runTS.R file:
   multifasta <- path to multifasta file
   taxondir <- path to the NCBI taxonomy directory
 
-, and the parameters for the sampling algorithm:
+and the parameters for the sampling algorithm:
 
   m: number of ID samples to obtain
-  method: whether the algorithm should maximize "diversity" or "balance"
   randomize: optional randomization when sampling within a branch
-  replacement: whether the algorithm is allowed to repeat IDs to achieve
-               balance
   ignoreIDs: which IDs, if any, should be ignored. Ignoring non-leaf nodes here 
              will also ignore its children/offspring
   requireIDs: which IDs, if any, must appear in the result

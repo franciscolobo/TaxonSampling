@@ -3,6 +3,10 @@
 # it automated for future uses.
 
 
+#where should we start looking?
+root_taxon <- 1
+
+
 #taxon ids to sequence names
 #idsFile <- "inputs/test1"
 idsFile <- "data/validation/taxonIDs_2_sequenceIDs.txt"
@@ -15,7 +19,7 @@ multifasta <- "data/validation/sequences_with_taxonIDs.fasta"
 taxondir <- "taxdump/"
 
 #number of sequences to sample
-m <- 50
+m <- 200
 
 ignoreIDs <- NULL
 
@@ -43,16 +47,17 @@ countIDs <- TS_TaxonomyData(idsFile, nodes)
 #them work
 
 #method to use (either 'diversity' or 'balance')
-#BUG - diversity samples less sequences than expected
 method <- "diversity"
 
 #wheter to randomize
-randomize <- "no"
+randomize <- "yes"
 
 #allow TS to repeat IDs if needed? ('no' is better to get a higher diversity)
 replacement <- "yes"
 
 nodes <- Simplify_Nodes(nodes, countIDs)
+
+outputIDs1 <- list()
 
 if (!is.null(requireIDs)) {
   total_requiredIDs <- length(requireIDs)
@@ -65,7 +70,7 @@ if (!is.null(requireIDs)) {
 
 requireIDs <- NULL
 
-outputIDs2 <- TS_Algorithm(1, m, nodes, countIDs, method, randomize,
+outputIDs2 <- TS_Algorithm(root_taxon, m, nodes, countIDs, method, randomize,
                           replacement, ignoreIDs, requireIDs,
                           ignoreNonLeafID)
 

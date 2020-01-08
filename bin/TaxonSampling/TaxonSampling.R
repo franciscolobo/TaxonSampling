@@ -81,6 +81,8 @@ TS_TaxonomyData <- function(idsFile, nodes) {
   if (!is.null(idsFile) & isTRUE(file.exists(as.character(idsFile)))) {
     ids <- read.table(idsFile, sep = "\t", header = FALSE, comment.char = "")
     ids <- ids[, 1]
+  } else { #getting ids if list of IDs
+    ids <- as.integer(idsFile)  # assume it's a test.name or back.name, for now
   }
 
   
@@ -201,7 +203,7 @@ TS_Algorithm_Recursion <- function(taxon, m, nodes, countIDs,
     childrenCount <- c(childrenCount, countIDs[as.character(taxon)])
     childrenCount[as.character(taxon)] <- 1
   }
-  
+
   m_i <- rep.int(0, length(childrenCount))
   names(m_i) <- names(childrenCount)
   
@@ -319,7 +321,7 @@ TS_Algorithm <- function(taxon, m, nodes, countIDs, method = "diversity",
   
   # Reduce the node information to the necessary only, reduces search time.
   Simplify_Nodes(nodes, countIDs)
-    
+
   if (!is.null(ignoreIDs)) {
     ignoreIDs <- as.integer(ignoreIDs)
     
@@ -436,9 +438,11 @@ TS_Algorithm <- function(taxon, m, nodes, countIDs, method = "diversity",
   Simplify_Nodes(nodes, countIDs)
   
   # Ensure m <= number of valid ids.
-  if (!is.null(idsFile) & isTRUE(file.exists(as.character(idsFile)))) {
+  if (!is.null(idsFile) & isTRUE(file.exists(as.character(idsFile)))) { #parsing variable if file
     ids <- read.table(idsFile, sep = "\t", header = FALSE, comment.char = "")
     ids <- ids[, 1]
+  } else { #getting ids if list of IDs
+    ids <- as.integer(idsFile)  # assume it's a test.name or back.name, for now
   }
 
   if (m > length(intersect(ids, names(countIDs)))) {
