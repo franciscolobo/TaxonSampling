@@ -11,7 +11,7 @@
 
 extract_sequences <- function(taxlist, seq_file, verbose = TRUE) {
 
-  if(verbose) message("Reading sequences from file: ", seq_file)
+  if(verbose) message("Reading sequences from seq file")
   x <- seqinr::read.fasta(file = seq_file, as.string = TRUE)
   x <- x[taxlist$ids_df$seqID[taxlist$ids_df$taxID %in% taxlist$outputIDs]]
   x <- lapply(x, toupper)

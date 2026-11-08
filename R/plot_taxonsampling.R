@@ -26,7 +26,7 @@ plot.taxonsampling <- function(x, ...)
     as.list(nodes$id),
     function(ppi){
       y <- ppi
-      while(as.character(y) != as.character(x$ts.params$taxon)){
+      while(y != x$ts.params$taxon){
         y       <- x$nodes$parent[x$nodes$id == y]
         ppi <- c(ppi, y)
       }

@@ -5,8 +5,10 @@ sample_a_d_n <- function(m, m_i, childrenCount, childrenCountSpp, ...){
     m_i[child] <- m_i[child] + 1
     m <- m - length(child)
   }
-  child <- sample(names(childrenCount)[childrenCount > m_i], m)
-  m_i[child] <- m_i[child] + 1
+  if(sum(m_i) < m){
+    child <- sample(names(childrenCount)[childrenCount > m_i], m)
+    m_i[child] <- m_i[child] + 1
+  }
 
   return(m_i)
 }

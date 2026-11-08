@@ -1,8 +1,21 @@
 sample_k_b_y <- function(m, m_i, childrenCount, childrenCountSpp, ...){
-  m_i <- table(sample(names(childrenCount),
-                      size    = m,
-                      replace = TRUE,
-                      prob    = childrenCountSpp / sum(childrenCountSpp)))
+  x <- table(sample(names(childrenCount),
+                    size    = m + sum(m_i),
+                    replace = TRUE,
+                    prob    = childrenCountSpp / sum(childrenCountSpp)))
 
-  return(m_i)
+  for (nn in names(m_i)){
+    if(!(nn %in% names(x))) {
+      x[nn]  <- 0
+    }
+  }
+
+  while(any(x - m_i < 0)){
+    id1 <- which.max(x - m_i)[1]
+    id2 <- which.min(x - m_i)[1]
+    x[id2] <- x[id2] + 1
+    x[id1] <- x[id1] - 1
+  }
+
+  return(x)
 }

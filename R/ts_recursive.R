@@ -33,15 +33,22 @@
 ts_recursive <- function(taxlist, verbose = TRUE) {
 
 
-  if(verbose) {
-    cat("\r", rep(" ", 50),
-        "\r--> Recursive sampling:",
-        paste(rep(".", sample.int(8, 1)), collapse = ""))
-  }
-
   # extract relevant variables for recursive call
   taxon <- taxlist$ts.process$taxon
   m     <- taxlist$ts.process$m
+
+  countSpp <- taxlist$spp_df$species_count
+  names(countSpp) <- taxlist$spp_df$taxID
+
+  if(verbose) {
+    # This isn't intended to mean much, it just gives the user some
+    # visual feedback
+    cat("\r", paste(rep(" ", 80), collapse = ""),
+        "\r--> Recursive sampling:",
+        paste(rep(".",
+                  min(30, ceiling(60 * m/taxlist$ts.params$m))),
+              collapse = ""))
+  }
 
   # Sanity check
   if (m <= 0) stop("m less or equal than zero during recursion.")
@@ -61,7 +68,7 @@ ts_recursive <- function(taxlist, verbose = TRUE) {
   }
 
   childrenCount    <- taxlist$countIDs[as.character(children)]
-  childrenCountSpp <- taxlist$countSpp[as.character(children)]
+  childrenCountSpp <- countSpp[as.character(children)]
 
   # Sanity check
   # In a few cases, the number of sequences may be greater than the number of
@@ -70,7 +77,6 @@ ts_recursive <- function(taxlist, verbose = TRUE) {
   # species level.
   # If that's the case, replace the number of known species by the number of
   # child sequences.
-  # TODO: check this with Francisco
   childrenCountSpp[childrenCount > childrenCountSpp] <- childrenCount[childrenCount > childrenCountSpp]
 
 
@@ -92,49 +98,29 @@ ts_recursive <- function(taxlist, verbose = TRUE) {
                  substr(taxlist$ts.params$randomize, 1, 1),
                  sep = "_")
 
+  # Ensure requireIDs are present in the sample in the required quantities
+  m_i  <- 0 * childrenCount
+  reqs <- which(names(m_i) %in% names(taxlist$ts.process$requireIDs))
+  if(length(reqs) > 0){
+    m_i[reqs] <- taxlist$ts.process$requireIDs[names(m_i)[reqs]]
+  }
+  m <- m - sum(m_i)
+
   # Perform sampling at current recursion level
   m_i <- do.call(fname,
                  args = list(m                = m,
-                             m_i              = 0 * childrenCount,
+                             m_i              = m_i,
                              childrenCount    = childrenCount,
                              childrenCountSpp = childrenCountSpp))
 
-  # TODO: check the whole requireIDs thing.
-  # Require specific IDs (and their parents/ancestors) to be present.
-  # If any required ID has a lower m_i allocated than needed (informed by
-  # requireIDs), reallocate from another ID in m_i.
-  #  if (!is.null(requireIDs)) {
-  #    req <- is.element(names(m_i), names(requireIDs))
-  #    toAdd <- m_i[req] < requireIDs[names(m_i[req])]
-  #    if (randomize == "no") {
-  #      while (any(toAdd)) {
-  #        subtract <- m_i[setdiff(names(m_i), names(toAdd))]
-  #        subtract <- sample(names(subtract[subtract == max(subtract)]), 1)
-  #        m_i[subtract] <- m_i[subtract] - 1
-  #        add <- sample(names(toAdd[toAdd == TRUE]), 1)
-  #        m_i[add] <- m_i[add] + 1
-  #        toAdd <- m_i[req] < requireIDs[names(m_i[req])]
-  #      }
-  #    } else if (randomize == "yes") {
-  #      while (any(toAdd)) {
-  #        subtract <- m_i[setdiff(names(m_i), names(toAdd))]
-  #        subtract <- sample(names(subtract[subtract > 0]), 1)
-  #        m_i[subtract] <- m_i[subtract] - 1
-  #        add <- sample(names(toAdd[toAdd == TRUE]), 1)
-  #        m_i[add] <- m_i[add] + 1
-  #        toAdd <- m_i[req] < requireIDs[names(m_i[req])]
-  #      }
-  #    }
-  #  }
-
-  outputIDs <- character()
+  outputIDs <- integer()
   for (id in names(m_i)) {
     if (m_i[id] > 0){
-      if (id == as.character(taxon)){
-        outputIDs <- c(outputIDs, id)
+      if (id == taxon){
+        outputIDs <- c(outputIDs, as.integer(id))
       } else {
         taxlist$ts.process$m     <- m_i[id]
-        taxlist$ts.process$taxon <- id
+        taxlist$ts.process$taxon <- as.integer(id)
         outputIDs <- c(outputIDs, ts_recursive(taxlist, verbose))
       }
     }

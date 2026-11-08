@@ -4,7 +4,7 @@
 #' to the desired balance / diversity.
 #'
 #' @param taxlist list object of class _taxonsampling_, returned by
-#' [get_species_count()]
+#' [get_species_count()].
 #' @param taxon Taxon ID from which to start sampling children taxa (single
 #' character or integer value)
 #' @param m desired sample size
@@ -12,7 +12,7 @@
 #' containing the input sequences.
 #' @param out_file character string naming a file to save the output (a
 #' multifasta file). Ignored if `seq_file == NULL`.
-#' @param method sampling method to use. Accepts "balance" (favors balanced taxa
+#' @param method sampling method to use. Accepts "balanced" (favors balanced taxa
 #' representation) or "diversity" (favors maximized taxa representation)
 #' @param randomize randomization strategy: should the algorithm choose IDs
 #' randomly ("yes"), maintaining a balanced allocation ("no"), or with a
@@ -27,8 +27,6 @@
 #' in the output. Notice that `ignoreIDs` has precedence over `requireIDs`,
 #' i.e., IDs that occur in both will be ignored. `requireIDs` that are children
 #' of any `ignoreIDs` will also be ignored.
-#' @param ignoreNonLeafIDs non-leaf IDs to ignore; won't apply to leaf nodes
-#' and won't exclude children from the sampling (unlike ignoreIDs).
 #' @param sampling sampling mode. Accepts "agnostic" (sample species in a
 #' diversity-agnostic manner) or "known_species" (sample based on known species
 #' diversity).
@@ -48,14 +46,13 @@ run_TS <- function(taxlist, taxon, m,
                    replacement      = FALSE,
                    ignoreIDs        = NULL,
                    requireIDs       = NULL,
-                   ignoreNonLeafIDs = NULL,
                    sampling         = "agnostic",
                    verbose          = TRUE) {
 
   # ===========================================================================
   # Sanity checks
   assertthat::assert_that(is.list(taxlist),
-                          all(c("countIDs", "nodes") %in% names(taxlist)),
+                          inherits(taxlist, "taxonsampling"),
                           is.character(taxon) || is.numeric(taxon),
                           assertthat::is.count(m),
                           is.null(seq_file) ||
@@ -77,12 +74,9 @@ run_TS <- function(taxlist, taxon, m,
                           is.null(requireIDs) ||
                             is.numeric(requireIDs) ||
                             is.character(requireIDs),
-                          is.null(ignoreNonLeafIDs) ||
-                            is.numeric(ignoreNonLeafIDs) ||
-                            is.character(ignoreNonLeafIDs),
                           is.logical(verbose), length(verbose) == 1)
 
-  if (randomize == "after_first_round" && method == "balance"){
+  if (randomize == "after_first_round" && method == "balanced"){
     stop('Combination of randomize == "after_first_round" and method == "balance" not possible')
   }
 
@@ -90,32 +84,29 @@ run_TS <- function(taxlist, taxon, m,
   taxlist$ts.params         <- as.list(environment())
   taxlist$ts.params$taxlist <- NULL
 
-  # Force all IDs to integer
-  if(is.character(taxon)) taxlist$ts.params$taxon <- as.integer(taxon)
-  if(is.character(ignoreIDs)) taxlist$ts.params$ignoreIDs <- as.integer(ignoreIDs)
-  if(is.character(requireIDs)) taxlist$ts.params$requireIDs <- as.integer(requireIDs)
-  if(is.character(ignoreNonLeafIDs)) taxlist$ts.params$ignoreNonLeafIDs <- as.integer(ignoreNonLeafIDs)
+  # Force all IDs to character
+  taxlist$ts.params$taxon      <- as.integer(taxon)
+  taxlist$ts.params$ignoreIDs  <- as.integer(ignoreIDs)
+  taxlist$ts.params$requireIDs <- as.integer(requireIDs)
 
   # ===========================================================================
 
-  # Process ignoreIDs, ignoreNonLeafIDs and requireIDs
-  # TODO: Check process_ignoreNonLeafIDs
+  # Process ignoreIDs and requireIDs
   taxlist <- process_ignoreIDs(taxlist)
-  taxlist <- process_ignoreNonLeafIDs(taxlist)
   taxlist <- process_requireIDs(taxlist)
 
   # Reduce node information to the necessary only, reduces search time.
-  taxlist$nodes <- taxlist$nodes[taxlist$nodes$id %in% as.numeric(names(taxlist$countIDs)), ]
+  taxlist$nodes <- taxlist$nodes[taxlist$nodes$id %in% names(taxlist$countIDs), ]
 
   # Ensure m <= number of valid ids.
   m <- min(m, length(intersect(taxlist$ids_df$taxID, names(taxlist$countIDs))))
 
   # Call the TS algorithm itself.
-  if(verbose) message("Running recursive sampling")
-  taxlist$ts.process <- list(taxon = taxon, m = m)
-  taxlist$outputIDs  <- c(taxlist$ts.process$outputIDs,
-                          ts_recursive(taxlist, verbose))
-  if(verbose) cat("\r", rep(" ", 50), "\r")
+  if(verbose) message("\rRunning recursive sampling")
+  taxlist$ts.process <- c(taxlist$ts.process,
+                          list(taxon = taxon, m = m))
+  taxlist$outputIDs  <- ts_recursive(taxlist, verbose)
+  if(verbose) cat("\r", paste(rep(" ", 40), collapse = ""), "\r")
 
   if(!is.null(seq_file)){
     taxlist <- extract_sequences(taxlist, seq_file, verbose)

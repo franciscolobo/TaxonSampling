@@ -6,6 +6,7 @@
 \usage{
 retrieve_NCBI_taxonomy(
   target.dir,
+  keep.all = TRUE,
   method = "auto",
   unzip = getOption("unzip"),
   url = "https://ftp.ncbi.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.zip",
@@ -17,6 +18,9 @@ retrieve_NCBI_taxonomy(
 \item{target.dir}{path to the folder where the files will be saved (
 accepts relative and absolute paths)}
 
+\item{keep.all}{logical: should all files be kept (default) or only the ones
+used by _TaxonSampling_ ('nodes.dmp' and 'names.dmp')?}
+
 \item{method}{Method to be used for downloading files. Current download
 methods are "internal", "wininet" (Windows only) "libcurl", "wget" and
 "curl", and there is a value "auto": see _Details_ and _Note_ in the
@@ -27,7 +31,8 @@ documentation of \code{utils::download.file()}.}
 
 \item{url}{URL of the full NCBI taxonomy file.}
 
-\item{timeout}{maximum time allowed for the download}
+\item{timeout}{maximum time allowed for the download, in seconds.
+Increase when under a slow connection.}
 
 \item{...}{additional attributes (currently ignored)}
 }
