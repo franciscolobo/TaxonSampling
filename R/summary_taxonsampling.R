@@ -16,13 +16,13 @@
 summary.taxonsampling <- function(object, ...)
 {
   if("ts.params" %in% names(object) && is.list(object$ts.params)){
-    message(rep("-", 70))
-    message("Processed taxonsampling object returned by run_TS() with input parameters:")
+    message(rep("-", 30))
+    message("Processed 'taxonsampling' object returned by run_TS()\nwith input parameters:")
     for (i in seq_along(names(object$ts.params))){
       if(is.null(object$ts.params[[i]])) object$ts.params[[i]] <- "NULL"
       message(names(object$ts.params)[i], ": ", paste(object$ts.params[[i]], collapse = ","))
     }
-    message(rep("-", 70))
+    message(rep("-", 30))
   }
 
   if("ts.params" %in% names(object) && is.list(object$ts.params)){
@@ -53,11 +53,6 @@ summary.taxonsampling <- function(object, ...)
             length(object$countIDs), " elements")
   }
 
-  if("countSpp" %in% names(object) && is.vector(object$countSpp)){
-    message("Element 'countSpp':\tvector with ",
-            length(object$countSpp), " elements")
-  }
-
   if("outputIDs" %in% names(object) && is.vector(object$outputIDs)){
     message("Element 'outputIDs':\tvector with ",
             length(object$outputIDs), " elements")
@@ -67,6 +62,7 @@ summary.taxonsampling <- function(object, ...)
     message("Element 'outputSeqs':\tlist with ",
             length(object$outputSeqs), " elements")
   }
+  message(rep("-", 30))
 
   invisible(NULL)
 }

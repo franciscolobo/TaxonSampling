@@ -1,10 +1,8 @@
 process_requireIDs <- function(taxlist) {
 
-  taxlist$ts.process$requireIDs.list <- NULL
-  taxlist$ts.process$outputIDs       <- character()
-
+  taxlist$ts.process$requireIDs <- numeric()
   requireIDs <- taxlist$ts.params$requireIDs
-  if (!is.null(requireIDs)) {
+  if (!is.null(requireIDs) && length(requireIDs) > 0) {
     # Filter IDs that aren't part of NCBI notation.
     idx <- which(!(requireIDs %in% taxlist$nodes$id))
     if (length(idx) > 0) {
@@ -20,29 +18,28 @@ process_requireIDs <- function(taxlist) {
       requireIDs <- requireIDs[-idx]
     }
 
-    # Remove IDs that have any ignoreIDs as a parent.
-    # (shouldn't happen, since we run process_ignoreIDs prior to calling
-    # this function - but just to be on the safe side)
-    # TODO: make this refer directly to taxlist$ts.params$ignoreIDs
-    idx <- which(!(requireIDs %in% names(taxlist$countIDs)))
-    if (length(idx) > 0) {
-      warning("The following IDs are either children or part of your ignoreIDs and will be ignored:\n",
-              paste(requireIDs[idx], collapse = "\n"))
-      requireIDs <- requireIDs[-idx]
+    # Remove requireIDs that are parents of other requireIDs, since this is
+    # redundant - EXCEPT if the parent id is at level "species" or below.
+    for (id in requireIDs) {
+      idpars <- CHNOSZ::allparents(id, nodes = taxlist$nodes)
+      idpars <- taxlist$nodes[taxlist$nodes$id %in% idpars, ]
+      idpars <- idpars$id[!(idpars$level %in% c("species",
+                                                "subspecies",
+                                                "varietas"))]
+      idpars <- idpars[idpars != id]
+      if (length(idpars) > 0) {
+        requireIDs <- requireIDs[!(requireIDs %in% idpars)]
+      }
     }
 
     if (length(requireIDs) > 0) {
-      # TODO: Why generate this list?
-      taxlist$ts.process$requireIDs.list <- get_taxonomy_counts(
-        ids_df  = data.frame(taxID = requireIDs,
-                             seqID = NA),
-        nodes   = taxlist$nodes,
-        verbose = FALSE)
-      taxlist$ts.process$outputIDs <- requireIDs
-      taxlist$ts.process$m <- taxlist$ts.process$m - length(requireIDs)
+      parentIDs <- table(unlist(lapply(requireIDs,
+                                       CHNOSZ::allparents,
+                                       nodes = taxlist$nodes)))
+      taxlist$ts.process$requireIDs <- as.numeric(parentIDs)
+      names(taxlist$ts.process$requireIDs) <- names(parentIDs)
 
     }
-    taxlist$ts.params$requireIDs <- requireIDs
   }
 
   return(taxlist)

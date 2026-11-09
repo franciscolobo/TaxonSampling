@@ -15,14 +15,13 @@ run_TS(
   replacement = FALSE,
   ignoreIDs = NULL,
   requireIDs = NULL,
-  ignoreNonLeafIDs = NULL,
   sampling = "agnostic",
   verbose = TRUE
 )
 }
 \arguments{
 \item{taxlist}{list object of class _taxonsampling_, returned by
-[get_species_count()]}
+[get_species_count()].}
 
 \item{taxon}{Taxon ID from which to start sampling children taxa (single
 character or integer value)}
@@ -35,7 +34,7 @@ containing the input sequences.}
 \item{out_file}{character string naming a file to save the output (a
 multifasta file). Ignored if `seq_file == NULL`.}
 
-\item{method}{sampling method to use. Accepts "balance" (favors balanced taxa
+\item{method}{sampling method to use. Accepts "balanced" (favors balanced taxa
 representation) or "diversity" (favors maximized taxa representation)}
 
 \item{randomize}{randomization strategy: should the algorithm choose IDs
@@ -54,9 +53,6 @@ the output.}
 in the output. Notice that `ignoreIDs` has precedence over `requireIDs`,
 i.e., IDs that occur in both will be ignored. `requireIDs` that are children
 of any `ignoreIDs` will also be ignored.}
-
-\item{ignoreNonLeafIDs}{non-leaf IDs to ignore; won't apply to leaf nodes
-and won't exclude children from the sampling (unlike ignoreIDs).}
 
 \item{sampling}{sampling mode. Accepts "agnostic" (sample species in a
 diversity-agnostic manner) or "known_species" (sample based on known species
