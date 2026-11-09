@@ -111,7 +111,7 @@ get_counts <- function(taxonomy_path,
   if(verbose) message('Reading nodes file')
   nodes <- data.table::fread(paste(taxonomy_path, "nodes.dmp", sep = "/"),
                              sep = "|", strip.white = TRUE,
-                             colClasses = c("integer", "integer", "character", rep("NULL", 11)),
+                             colClasses = c("integer", "integer", "character", rep("NULL", 16)),
                              col.names = c("id", "parent", "level"),
                              verbose = FALSE)
   nodes$level <- gsub("\\t", "", nodes$level)
