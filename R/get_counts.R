@@ -1,206 +1,792 @@
-#' Return the relevant counts for running TaxonSampling
+
+#' Count input taxa on a precomputed TaxonSampling scaffold
 #'
-#' This function evaluates the taxonomical structure from a set of input IDs
-#' and returns the count of each taxon ID with non-zero occurrences in the
-#' taxonomy graph, as well as the count of known species under each taxon.
+#' Each distinct input identifier contributes one observation by default.
+#' Alternatively, count each distinct mapped backbone node once.
+#' Background counts are read from the immutable DuckDB scaffold.
 #'
-#' @param taxonomy_path path to folder containing the NCBI taxonomy files
-#' (i.e., the extracted contents of _taxdump.zip_, which can be downloaded from
-#' <ftp://ftp.ncbi.nih.gov/pub/taxonomy/> or retrieved using
-#' [retrieve_NCBI_taxonomy()]).
-#' @param ids_file path to a tab-separated file containng two two columns,
-#' with the input taxon IDs in the first
-#' column, and the corresponding sequence IDs (corresponding
-#' to the ID strings int the multifasta input file, without
-#' the ">" line starter) in the second column.
-#' @param ids_df two-column data frame with the input taxon IDs in the first
-#' column, and the corresponding sequence IDs (corresponding
-#' to the ID strings int the multifasta input file, without
-#' the ">" line starter) in the second column. Ignored if
-#' `ids_file` is not `NULL`.
-#' @param spp_df two-column data frame with the input taxon IDs in the first
-#' column, and the corresponding number of known species in the second column.
-#' This can be generated using [get_taxID_spp_counts()].
-#' Ignored if `spp_file` is not `NULL`.
-#' @param spp_file path to a tab-separated file containing two two columns,
-#' with the input taxon IDs in the first column, and the corresponding number of
-#' known species in the second column. If both `spp_file` and `spp_df` are `NULL`, then
-#' the counts are computed internally based either on the
-#' taxonomy files under `taxonomy_path`.
-#' @param verbose logical: regulates function echoing to console.
-#' @param start_from_species logical, passed down to [get_taxID_spp_counts()]
-#' (only if `spp_file` and `spp_file` are `NULL`).
+#' @param taxonomy_db Path to a DuckDB created by build_taxonomy_db().
+#' @param ids_file Headerless TSV (taxon ID, sequence ID).
+#' @param ids_df Data frame with taxon ID and sequence ID.
+#' @param id_type "ncbi", "ott", or "native".
+#' @param count_mode "input_ids" or "backbone_nodes".
+#' @param background_unit "species" or "tips".
+#' @param duplicate_ids "first" or "error".
+#' @param missing_ids "warn", "error", or "drop".
+#' @param spp_file Optional TSV overriding background counts.
+#' @param spp_df Optional data frame overriding background counts.
+#' @param start_from_species Deprecated compatibility parameter.
+#' @param verbose Print progress messages.
 #'
-#' @return list object of class _taxonsampling_, containing:
-#' \itemize{
-#'     \item `$ids_df`: data.frame with taxon IDs in column 1 and corresponding
-#'     sequence IDs in column 2, as loaded from `ids_file` or passed directly as
-#'     input. Filtered to maintain only IDs that exist in `$nodes` and to remove
-#'     duplicated IDs.
-#'     \item `$nodes`: data.frame containing the pre-processed information about
-#'     the NCBI taxonomy structure, extracted from file _nodes.dmp_ of the
-#'     taxonomy files. Filtered to keep only nodes with IDs present in `$ids_df`
-#'     and with a non-zero total count.
-#'     \item `$countIDs`: numeric vector with the counts of the number of
-#'     taxonomy nodes (of all levels) under each taxon ID.
-#'     \item `spp_df`: two-column data frame with the input taxon IDs in the
-#'     first column, and the corresponding number of known species in the second
-#'    column. Filtered to have only the IDs present in `$countIDs`.
-#' }
+#' @return A taxonsampling list containing nodes, ids_df, countIDs,
+#'   spp_df, mapping, unmapped_ids, and metadata.
 #'
 #' @export
-#'
-#' @importFrom data.table :=
-
-get_counts <- function(taxonomy_path,
-                       ids_file      = NULL,
-                       ids_df        = NULL,
-                       spp_file      = NULL,
-                       spp_df        = NULL,
-                       start_from_species = FALSE,
-                       verbose       = TRUE) {
-
-  # ===========================================================================
-  # Sanity checks
-  assertthat::assert_that(is.null(ids_df) ||
-                            (is.data.frame(ids_df) && nrow(ids_df) > 0),
-                          is.null(ids_file) ||
-                            (is.character(ids_file) && length(ids_file) == 1),
-                          (is.null(ids_df) + is.null(ids_file)) < 2,
-                          is.character(taxonomy_path),                               length(taxonomy_path) == 1 &&
-                            dir.exists(taxonomy_path),
-                          is.null(spp_df) || (
-                            is.data.frame(spp_df) &&
-                              ncol(spp_df) >= 2 &&
-                              nrow(spp_df) > 0),
-                          is.null(spp_file) ||
-                            (is.character(spp_file) &&
-                               length(spp_file) == 1 &&
-                               file.exists(spp_file)),
-                          is.logical(verbose),
-                          length(verbose) == 1,
-                          is.logical(start_from_species),
-                          length(start_from_species) == 1)
-
-  # ===========================================================================
-  # Load required files
-
-  odt <- options("datatable.showProgress")
-  options(datatable.showProgress = FALSE)
-  # Load ids from file if required
-  if(!is.null(ids_file)) {
-    if(file.exists(ids_file)){
-      if(verbose) message('Reading ids file')
-      ids_df <- as.data.frame(
-        data.table::fread(ids_file, sep = "\t",
-                          colClasses = c("integer", "character"),
-                          col.names = c("taxID", "seqID"),
-                          verbose = FALSE))
-    } else {
-      stop("File ", ids_file, " not found.")
+get_counts <- function(
+    taxonomy_db,
+    ids_file = NULL,
+    ids_df = NULL,
+    id_type = c("ncbi", "ott", "native"),
+    count_mode = c("input_ids", "backbone_nodes"),
+    background_unit = c("species", "tips"),
+    duplicate_ids = c("first", "error"),
+    missing_ids = c("warn", "error", "drop"),
+    spp_file = NULL,
+    spp_df = NULL,
+    start_from_species = FALSE,
+    verbose = TRUE
+) {
+  
+  id_type <- match.arg(id_type)
+  count_mode <- match.arg(count_mode)
+  background_unit <- match.arg(background_unit)
+  duplicate_ids <- match.arg(duplicate_ids)
+  missing_ids <- match.arg(missing_ids)
+  
+  if (!requireNamespace("DBI", quietly = TRUE) ||
+      !requireNamespace("duckdb", quietly = TRUE)) {
+    stop("Packages DBI and duckdb are required.")
+  }
+  
+  if (!is.character(taxonomy_db) ||
+      length(taxonomy_db) != 1L ||
+      is.na(taxonomy_db) ||
+      !file.exists(taxonomy_db)) {
+    stop("taxonomy_db must be an existing DuckDB file.")
+  }
+  
+  if (!is.logical(verbose) ||
+      length(verbose) != 1L ||
+      is.na(verbose)) {
+    stop("verbose must be TRUE or FALSE.")
+  }
+  
+  if (!is.logical(start_from_species) ||
+      length(start_from_species) != 1L ||
+      is.na(start_from_species)) {
+    stop("start_from_species must be TRUE or FALSE.")
+  }
+  
+  if (start_from_species) {
+    warning(
+      "start_from_species is deprecated; ",
+      "background counts are precomputed.",
+      call. = FALSE
+    )
+  }
+  
+  if (is.null(ids_file) && is.null(ids_df)) {
+    stop("Provide ids_file or ids_df.")
+  }
+  
+  say <- function(...) {
+    if (verbose) message(...)
+  }
+  
+  # ---------------------------------------------------------------
+  # 1. Input loading
+  # ---------------------------------------------------------------
+  
+  read_pairs <- function(file, df, names_out) {
+    
+    if (!is.null(file)) {
+      
+      if (length(file) != 1L ||
+          is.na(file) ||
+          !file.exists(file)) {
+        stop("File not found: ", file)
+      }
+      
+      df <- utils::read.delim(
+        file,
+        header = FALSE,
+        sep = "\t",
+        quote = "",
+        comment.char = "",
+        colClasses = "character",
+        check.names = FALSE,
+        stringsAsFactors = FALSE
+      )
     }
+    
+    if (!is.data.frame(df) ||
+        ncol(df) < 2L ||
+        nrow(df) == 0L) {
+      stop(
+        "Expected a nonempty two-column data frame for ",
+        names_out[1L]
+      )
+    }
+    
+    df <- as.data.frame(
+      df[, 1:2, drop = FALSE],
+      stringsAsFactors = FALSE
+    )
+    
+    names(df) <- names_out
+    
+    df[[1L]] <- trimws(as.character(df[[1L]]))
+    df[[2L]] <- as.character(df[[2L]])
+    
+    df
+  }
+  
+  input <- read_pairs(
+    ids_file,
+    ids_df,
+    c("taxID", "seqID")
+  )
+  
+  invalid <- is.na(input$taxID) |
+    !nzchar(input$taxID)
+  
+  if (any(invalid)) {
+    
+    warning(
+      sum(invalid),
+      " rows with empty taxon IDs were discarded.",
+      call. = FALSE
+    )
+    
+    input <- input[!invalid, , drop = FALSE]
+  }
+  
+  if (!nrow(input)) {
+    stop("No valid input identifiers remain.")
+  }
+  
+  if (id_type == "ncbi") {
+    input$taxID <- sub("^ncbi:", "", input$taxID)
+  }
+  
+  if (id_type == "ott") {
+    input$taxID <- sub("^ott:", "", input$taxID)
+  }
+  
+  duplicated_input <- duplicated(input$taxID)
+  
+  if (any(duplicated_input)) {
+    
+    if (duplicate_ids == "error") {
+      stop("Duplicated input taxonomic identifiers.")
+    }
+    
+    warning(
+      sum(duplicated_input),
+      " duplicated input taxon IDs: ",
+      "keeping first occurrence.",
+      call. = FALSE
+    )
+    
+    input <- input[
+      !duplicated_input,
+      ,
+      drop = FALSE
+    ]
+  }
+  
+  rownames(input) <- NULL
+  
+  say("Distinct input taxa: ", nrow(input))
+  
+  # ---------------------------------------------------------------
+  # 2. Open reference database
+  # ---------------------------------------------------------------
+  
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = taxonomy_db,
+    read_only = TRUE
+  )
+  
+  on.exit(
+    DBI::dbDisconnect(
+      con,
+      shutdown = TRUE
+    ),
+    add = TRUE
+  )
+  
+  tables <- DBI::dbListTables(con)
+  
+  if (!all(c("nodes", "metadata") %in% tables)) {
+    stop(
+      "Invalid taxonomy database: ",
+      "nodes or metadata table missing."
+    )
+  }
+  
+  md <- DBI::dbGetQuery(
+    con,
+    "SELECT key, value FROM metadata"
+  )
+  
+  db_metadata <- stats::setNames(
+    as.character(md$value),
+    md$key
+  )
+  
+  taxonomy <- unname(db_metadata["taxonomy"])
+  
+  if (length(taxonomy) != 1L ||
+      is.na(taxonomy)) {
+    taxonomy <- "unknown"
+  }
+  
+  say("Taxonomy: ", taxonomy)
+  
+  # ---------------------------------------------------------------
+  # 3. Load scaffold
+  # ---------------------------------------------------------------
+  
+  say("Loading taxonomy nodes...")
+  
+  nodes_all <- DBI::dbGetQuery(
+    con,
+    paste(
+      "SELECT id, parent, name, rank, flags,",
+      "sourceinfo, ott_id, node_type,",
+      "species_count, tip_count, depth, child_count",
+      "FROM nodes"
+    )
+  )
+  
+  nodes_all$id <- as.character(nodes_all$id)
+  nodes_all$parent <- as.character(nodes_all$parent)
+  nodes_all$ott_id <- as.character(nodes_all$ott_id)
+  
+  n <- nrow(nodes_all)
+  
+  if (!n ||
+      anyNA(nodes_all$id) ||
+      anyDuplicated(nodes_all$id)) {
+    stop(
+      "Scaffold node identifiers are ",
+      "missing or duplicated."
+    )
+  }
+  
+  if (anyNA(nodes_all$depth)) {
+    stop("Scaffold contains missing node depths.")
+  }
+  
+  parent_idx <- match(
+    nodes_all$parent,
+    nodes_all$id
+  )
+  
+  root_idx <- which(
+    is.na(nodes_all$parent) |
+      !nzchar(nodes_all$parent) |
+      nodes_all$parent == nodes_all$id
+  )
+  
+  if (length(root_idx) != 1L) {
+    stop("Expected exactly one root node.")
+  }
+  
+  parent_idx[root_idx] <- NA_integer_
+  
+  if (anyNA(parent_idx[-root_idx])) {
+    stop(
+      "Some non-root parents are absent ",
+      "from scaffold."
+    )
+  }
+  
+  if (any(
+    nodes_all$depth[-root_idx] <=
+    nodes_all$depth[parent_idx[-root_idx]]
+  )) {
+    stop(
+      "Invalid scaffold: child depths must ",
+      "exceed parent depths."
+    )
+  }
+  
+  # ---------------------------------------------------------------
+  # 4. Map input identifiers
+  # ---------------------------------------------------------------
+  
+  say("Mapping input identifiers...")
+  
+  mapping <- data.frame(
+    taxID = input$taxID,
+    seqID = input$seqID,
+    node_id = NA_character_,
+    status = "unmapped",
+    stringsAsFactors = FALSE
+  )
+  
+  if (id_type == "native") {
+    
+    idx <- match(
+      mapping$taxID,
+      nodes_all$id
+    )
+    
+    mapping$node_id <- nodes_all$id[idx]
+    
+  } else if (id_type == "ott") {
+    
+    candidate <- which(
+      !is.na(nodes_all$ott_id) &
+        nzchar(nodes_all$ott_id)
+    )
+    
+    hits <- candidate[
+      match(
+        mapping$taxID,
+        nodes_all$ott_id[candidate]
+      )
+    ]
+    
+    mapping$node_id <- nodes_all$id[hits]
+    
+    duplicated_ott <- unique(
+      nodes_all$ott_id[candidate][
+        duplicated(nodes_all$ott_id[candidate])
+      ]
+    )
+    
+    mapping$status[
+      mapping$taxID %in% duplicated_ott
+    ] <- "ambiguous"
+    
+    mapping$node_id[
+      mapping$status == "ambiguous"
+    ] <- NA_character_
+    
+  } else if (taxonomy == "ncbi") {
+    
+    idx <- match(
+      paste0("ncbi:", mapping$taxID),
+      nodes_all$id
+    )
+    
+    missing <- is.na(idx)
+    
+    idx[missing] <- match(
+      mapping$taxID[missing],
+      nodes_all$id
+    )
+    
+    mapping$node_id <- nodes_all$id[idx]
+    
   } else {
-    names(ids_df) <- c("taxID", "seqID")
-    ids_df$taxID <- as.integer(ids_df$taxID)
+    
+    if (!"crossreferences" %in% tables) {
+      stop(
+        "NCBI mapping requires a ",
+        "crossreferences table."
+      )
+    }
+    
+    requested <- unique(mapping$taxID)
+    
+    chunks <- split(
+      requested,
+      ceiling(seq_along(requested) / 1000L)
+    )
+    
+    parts <- lapply(chunks, function(ids) {
+      
+      quoted <- as.character(
+        DBI::dbQuoteString(con, ids)
+      )
+      
+      DBI::dbGetQuery(
+        con,
+        paste0(
+          "SELECT source_id, ott_id ",
+          "FROM crossreferences ",
+          "WHERE source = 'ncbi' ",
+          "AND source_id IN (",
+          paste(quoted, collapse = ","),
+          ")"
+        )
+      )
+    })
+    
+    xrefs <- do.call(rbind, parts)
+    
+    if (nrow(xrefs)) {
+      
+      xrefs$source_id <- as.character(
+        xrefs$source_id
+      )
+      
+      xrefs$ott_id <- as.character(
+        xrefs$ott_id
+      )
+      
+      candidates <- which(
+        !is.na(nodes_all$ott_id) &
+          nzchar(nodes_all$ott_id)
+      )
+      
+      matched <- match(
+        xrefs$ott_id,
+        nodes_all$ott_id[candidates]
+      )
+      
+      xrefs$node_idx <- candidates[matched]
+      
+      xrefs <- unique(
+        xrefs[
+          !is.na(xrefs$node_idx),
+          c("source_id", "node_idx"),
+          drop = FALSE
+        ]
+      )
+      
+      if (nrow(xrefs)) {
+        
+        target_counts <- table(
+          xrefs$source_id
+        )
+        
+        ambiguous <- names(target_counts)[
+          target_counts > 1L
+        ]
+        
+        resolved <- xrefs[
+          !(xrefs$source_id %in% ambiguous),
+          ,
+          drop = FALSE
+        ]
+        
+        idx <- match(
+          mapping$taxID,
+          resolved$source_id
+        )
+        
+        mapping$node_id <- nodes_all$id[
+          resolved$node_idx[idx]
+        ]
+        
+        mapping$status[
+          mapping$taxID %in% ambiguous
+        ] <- "ambiguous"
+      }
+    }
   }
-
-  ids_df$seqID <- gsub("\\t", "", ids_df$seqID)
-
-
-  # Load nodes from file
-  if(verbose) message('Reading nodes file')
-  nodes <- data.table::fread(paste(taxonomy_path, "nodes.dmp", sep = "/"),
-                             sep = "|", strip.white = TRUE,
-                             colClasses = c("integer", "integer", "character", rep("NULL", 16)),
-                             col.names = c("id", "parent", "level"),
-                             verbose = FALSE)
-  nodes$level <- gsub("\\t", "", nodes$level)
-
-  if(verbose) message('Reading names file')
-  name <- NULL
-  names <- data.table::fread(paste(taxonomy_path, "names.dmp", sep = "/"),
-                             sep = "|", strip.white = TRUE,
-                             colClasses = c("integer", "character", "NULL", "character", "NULL"),
-                             col.names = c("id", "name", "status"),
-                             verbose = FALSE)
-  names[, 2:3] <- lapply(names[, 2:3], function(x) gsub("\\t", "", x))
-  names <- names[names$status == "scientific name", -c("status")]
-  nodes[names, name := name, on = c("id")]
-
-
-  # Load ids from file if required
-  if(!is.null(spp_file)){
-    if(verbose) message('Reading spp file')
-    spp_df <- as.data.frame(
-      data.table::fread(spp_file, sep = "\t",
-                        colClasses = c("integer", "integer"),
-                        col.names = c("taxID", "species_count"),
-                        verbose = FALSE))
-  } else if (!is.null(spp_df)){
-    names(spp_df)[1:2] <- c("taxID", "species_count")
-    spp_df$taxID <- as.integer(spp_df$taxID)
-    spp_df$species_count <- as.integer(spp_df$species_count)
+  
+  mapping$status[
+    !is.na(mapping$node_id)
+  ] <- "mapped"
+  
+  unmapped_ids <- mapping[
+    mapping$status != "mapped",
+    ,
+    drop = FALSE
+  ]
+  
+  if (nrow(unmapped_ids)) {
+    
+    msg <- paste0(
+      nrow(unmapped_ids),
+      " input identifiers could not be mapped uniquely."
+    )
+    
+    if (missing_ids == "error") {
+      stop(msg)
+    }
+    
+    if (missing_ids == "warn") {
+      warning(msg, call. = FALSE)
+    }
+  }
+  
+  mapped <- mapping[
+    mapping$status == "mapped",
+    ,
+    drop = FALSE
+  ]
+  
+  if (!nrow(mapped)) {
+    stop("No input identifiers mapped to scaffold.")
+  }
+  
+  say("Mapped input taxa: ", nrow(mapped))
+  say("Unmapped/ambiguous taxa: ", nrow(unmapped_ids))
+  
+  # ---------------------------------------------------------------
+  # 5. Initialize counts
+  # ---------------------------------------------------------------
+  
+  mapped_idx <- match(
+    mapped$node_id,
+    nodes_all$id
+  )
+  
+  count_idx <- if (count_mode == "backbone_nodes") {
+    unique(mapped_idx)
   } else {
-    spp_df <- get_taxID_spp_counts(taxonomy_path,
-                                   nodes   = nodes,
-                                   verbose = verbose,
-                                   start_from_species = start_from_species)
+    mapped_idx
   }
-
-  # Return data.table options to previous state
-  options(odt)
-
-  # ===========================================================================
-  # Process taxonomy counts
-
-  # Filter IDs that aren't part of NCBI notation.
-  idx <- which(!(ids_df$taxID %in% nodes$id))
-  if (length(idx) > 0) {
-    warning("The following IDs are not found in the NCBI taxonomy files and will be ignored:\n",
-            paste(ids_df$taxID[idx], collapse = "\n"))
-    ids_df <- ids_df[-idx, ]
+  
+  observed <- as.numeric(
+    tabulate(
+      count_idx,
+      nbins = n
+    )
+  )
+  
+  say(
+    "Counting mode: ",
+    count_mode,
+    " (",
+    length(count_idx),
+    " contributions)"
+  )
+  
+  # ---------------------------------------------------------------
+  # 6. Build induced ancestor subgraph
+  # ---------------------------------------------------------------
+  
+  active <- rep(FALSE, n)
+  
+  frontier <- unique(mapped_idx)
+  
+  while (length(frontier)) {
+    
+    frontier <- frontier[!active[frontier]]
+    
+    if (!length(frontier)) {
+      break
+    }
+    
+    active[frontier] <- TRUE
+    
+    frontier <- unique(
+      parent_idx[frontier]
+    )
+    
+    frontier <- frontier[
+      !is.na(frontier)
+    ]
   }
-
-  # Remove duplicates
-  idx <- which(duplicated(ids_df$taxID))
-  if (length(idx) > 0) {
-    warning("Some IDs are duplicated, only the first occurrence will be used.")
-    ids_df <- ids_df[-idx, ]
+  
+  active_idx <- which(active)
+  
+  say(
+    "Nodes in induced taxonomy: ",
+    length(active_idx)
+  )
+  
+  # ---------------------------------------------------------------
+  # 7. Propagate counts to ancestors
+  # ---------------------------------------------------------------
+  
+  say("Propagating observed counts...")
+  
+  depths <- sort(
+    unique(nodes_all$depth[active_idx]),
+    decreasing = TRUE
+  )
+  
+  for (d in depths) {
+    
+    current <- active_idx[
+      nodes_all$depth[active_idx] == d
+    ]
+    
+    parents <- parent_idx[current]
+    
+    valid <- !is.na(parents)
+    
+    if (!any(valid)) {
+      next
+    }
+    
+    totals <- rowsum(
+      observed[current[valid]],
+      group = parents[valid],
+      reorder = FALSE
+    )
+    
+    targets <- as.integer(
+      rownames(totals)
+    )
+    
+    observed[targets] <- observed[targets] +
+      as.numeric(totals[, 1L])
   }
-
-  # Count how often each taxonomy ID occurs in the dataset
-  countIDs            <- rep.int(0, nrow(nodes))
-  names(countIDs)     <- nodes$id
-  nodes_parent        <- nodes$parent
-  names(nodes_parent) <- nodes$id
-  searchIDs           <- ids_df$taxID
-  countIDs[as.character(searchIDs)] <- 1
-
-  if(verbose) message("Counting taxonomy IDs")
-  while (length(searchIDs) > 0) {
-    searchIDs <- nodes_parent[as.character(searchIDs)]
-    parentage <- table(searchIDs)
-    countIDs[names(parentage)] <- countIDs[names(parentage)] + parentage
-    searchIDs <- searchIDs[searchIDs != 1]
-    if(verbose) cat("\r", sprintf("--> %06d taxIDs still being counted.", length(searchIDs)))
+  
+  # ---------------------------------------------------------------
+  # 8. Extract nodes with observed counts
+  # ---------------------------------------------------------------
+  
+  keep <- active_idx[
+    observed[active_idx] > 0
+  ]
+  
+  nodes <- nodes_all[
+    keep,
+    ,
+    drop = FALSE
+  ]
+  
+  rownames(nodes) <- NULL
+  
+  countIDs <- stats::setNames(
+    observed[keep],
+    nodes$id
+  )
+  
+  # ---------------------------------------------------------------
+  # 9. Background counts
+  # ---------------------------------------------------------------
+  
+  background_column <- if (
+    background_unit == "species"
+  ) {
+    "species_count"
+  } else {
+    "tip_count"
   }
-  if(verbose) cat("\r", paste(rep(" ", 40), collapse = ""))
-
-  countIDs <- countIDs[countIDs > 0]
-
-  # ===========================================================================
-  # Filter only the species counts of taxa listed in countIDs
-  spp_df   <- spp_df[spp_df$taxID %in% names(countIDs), ]
-
-  # Simplify nodes to reduce overhead
-  nodes <- nodes[nodes$id %in% as.numeric(names(countIDs)), ]
-
-  taxlist <- list(nodes    = nodes,
-                  ids_df   = ids_df,
-                  countIDs = countIDs,
-                  spp_df   = spp_df)
-
-  class(taxlist) <- c(class(taxlist), "taxonsampling")
-
-  return(taxlist)
+  
+  background <- data.frame(
+    taxID = nodes$id,
+    species_count = as.numeric(
+      nodes[[background_column]]
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  # ---------------------------------------------------------------
+  # 10. Optional background overrides
+  # ---------------------------------------------------------------
+  
+  if (!is.null(spp_file) || !is.null(spp_df)) {
+    
+    override <- read_pairs(
+      spp_file,
+      spp_df,
+      c("taxID", "species_count")
+    )
+    
+    override$species_count <- suppressWarnings(
+      as.numeric(override$species_count)
+    )
+    
+    if (anyNA(override$species_count) ||
+        any(!is.finite(override$species_count)) ||
+        any(override$species_count < 0) ||
+        anyDuplicated(override$taxID)) {
+      stop(
+        "Invalid or duplicated background overrides."
+      )
+    }
+    
+    if (taxonomy == "ncbi") {
+      
+      raw <- !grepl(
+        ":",
+        override$taxID,
+        fixed = TRUE
+      )
+      
+      override$taxID[raw] <- paste0(
+        "ncbi:",
+        override$taxID[raw]
+      )
+    }
+    
+    idx <- match(
+      override$taxID,
+      background$taxID
+    )
+    
+    found <- !is.na(idx)
+    
+    background$species_count[idx[found]] <-
+      override$species_count[found]
+    
+    if (any(!found)) {
+      warning(
+        sum(!found),
+        " overrides did not match retained nodes.",
+        call. = FALSE
+      )
+    }
+  }
+  
+  # ---------------------------------------------------------------
+  # 11. Assemble output
+  # ---------------------------------------------------------------
+  
+  result <- list(
+    
+    nodes = nodes,
+    
+    ids_df = mapped[
+      ,
+      c("taxID", "seqID", "node_id"),
+      drop = FALSE
+    ],
+    
+    countIDs = countIDs,
+    
+    spp_df = background,
+    
+    mapping = mapping,
+    
+    unmapped_ids = unmapped_ids,
+    
+    metadata = list(
+      
+      taxonomy = taxonomy,
+      
+      taxonomy_db = normalizePath(
+        taxonomy_db
+      ),
+      
+      id_type = id_type,
+      
+      count_mode = count_mode,
+      
+      background_unit = background_unit,
+      
+      input_taxa = nrow(input),
+      
+      mapped_taxa = nrow(mapped),
+      
+      unique_mapped_nodes = length(
+        unique(mapped_idx)
+      ),
+      
+      counted_contributions = length(
+        count_idx
+      ),
+      
+      unmapped_taxa = nrow(unmapped_ids),
+      
+      retained_nodes = nrow(nodes),
+      
+      root_id = nodes_all$id[root_idx],
+      
+      root_observed_count = observed[root_idx],
+      
+      root_background_count =
+        background$species_count[
+          match(
+            nodes_all$id[root_idx],
+            background$taxID
+          )
+        ],
+      
+      database_metadata = db_metadata
+    )
+  )
+  
+  class(result) <- c(
+    "taxonsampling",
+    "list"
+  )
+  
+  say("Completed get_counts().")
+  
+  result
 }
