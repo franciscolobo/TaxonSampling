@@ -35,7 +35,7 @@
 #' retrieve_data_files("data_files", overwrite = TRUE)
 #' }
 
-retrieve_data_files <- function(
+retrieve_taxonomy_files <- function(
     target.dir,
     datasets = c("ncbi", "ott", "opentree"),
     method = "auto",
