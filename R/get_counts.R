@@ -11,7 +11,7 @@
 #' @param id_type "ncbi", "ott", or "native".
 #' @param count_mode "input_ids" or "backbone_nodes".
 #' @param background_unit "species" or "tips".
-#' @param duplicate_ids "first" or "error".
+#' @param duplicate_ids "first" (remove identical taxon/sequence pairs) or "error".
 #' @param missing_ids "warn", "error", or "drop".
 #' @param spp_file Optional TSV overriding background counts.
 #' @param spp_df Optional data frame overriding background counts.
@@ -163,32 +163,22 @@ get_counts <- function(
     input$taxID <- sub("^ott:", "", input$taxID)
   }
   
-  duplicated_input <- duplicated(input$taxID)
-  
-  if (any(duplicated_input)) {
-    
+  # Preserve all taxon/sequence pairs. Duplicate taxon IDs do not add counts.
+  # Identical pairs are redundant; retain one copy.
+  duplicated_pairs <- duplicated(input[c("taxID", "seqID")])
+  if (any(duplicated_pairs)) {
     if (duplicate_ids == "error") {
-      stop("Duplicated input taxonomic identifiers.")
+      stop("Duplicated taxID/seqID pairs.")
     }
-    
-    warning(
-      sum(duplicated_input),
-      " duplicated input taxon IDs: ",
-      "keeping first occurrence.",
-      call. = FALSE
-    )
-    
-    input <- input[
-      !duplicated_input,
-      ,
-      drop = FALSE
-    ]
+    warning(sum(duplicated_pairs),
+            " repeated taxID/seqID pairs: keeping first occurrence.",
+            call. = FALSE)
+    input <- input[!duplicated_pairs, , drop = FALSE]
   }
-  
   rownames(input) <- NULL
-  
-  say("Distinct input taxa: ", nrow(input))
-  
+  say("Distinct input taxa: ", length(unique(input$taxID)),
+      "; taxon/sequence pairs: ", nrow(input))
+
   # ---------------------------------------------------------------
   # 2. Open reference database
   # ---------------------------------------------------------------
@@ -508,15 +498,19 @@ get_counts <- function(
     stop("No input identifiers mapped to scaffold.")
   }
   
-  say("Mapped input taxa: ", nrow(mapped))
-  say("Unmapped/ambiguous taxa: ", nrow(unmapped_ids))
+  mapped_taxa <- mapped[!duplicated(mapped$taxID), , drop = FALSE]
+
+  say("Mapped input taxa: ", nrow(mapped_taxa),
+      "; mapped sequences: ", nrow(mapped))
+  say("Unmapped/ambiguous taxa: ", length(unique(unmapped_ids$taxID)))
   
   # ---------------------------------------------------------------
   # 5. Initialize counts
   # ---------------------------------------------------------------
   
+  # Count unique input taxa, not the number of sequence records.
   mapped_idx <- match(
-    mapped$node_id,
+    mapped_taxa$node_id,
     nodes_all$id
   )
   
@@ -732,6 +726,8 @@ get_counts <- function(
     spp_df = background,
     
     mapping = mapping,
+
+    taxa_df = mapped_taxa[, c("taxID", "node_id"), drop = FALSE],
     
     unmapped_ids = unmapped_ids,
     
@@ -749,9 +745,13 @@ get_counts <- function(
       
       background_unit = background_unit,
       
-      input_taxa = nrow(input),
+      input_taxa = length(unique(input$taxID)),
+
+      input_sequences = nrow(input),
       
-      mapped_taxa = nrow(mapped),
+      mapped_taxa = nrow(mapped_taxa),
+
+      mapped_sequences = nrow(mapped),
       
       unique_mapped_nodes = length(
         unique(mapped_idx)
@@ -761,7 +761,7 @@ get_counts <- function(
         count_idx
       ),
       
-      unmapped_taxa = nrow(unmapped_ids),
+      unmapped_taxa = length(unique(unmapped_ids$taxID)),
       
       retained_nodes = nrow(nodes),
       

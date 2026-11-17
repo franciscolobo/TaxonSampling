@@ -56,6 +56,7 @@ retrieve_taxonomy_files <- function(
       "labelled_supertree_ottnames.tre"
     ),
     quiet = FALSE,
+    continue_on_error = TRUE,
     ...
 ) {
   
@@ -471,10 +472,16 @@ retrieve_taxonomy_files <- function(
   # 7. Download requested datasets
   # ============================================================
   
-  results <- lapply(
-    datasets,
-    download_dataset
-  )
+  results <- lapply(datasets, function(dataset) {
+    if (!continue_on_error) return(download_dataset(dataset))
+    tryCatch(download_dataset(dataset), error = function(e) {
+      warning("[", dataset, "] ", conditionMessage(e), call. = FALSE)
+      data.frame(dataset = dataset,
+                 directory = file.path(target.dir, dataset),
+                 url = sources[[dataset]], status = "failed",
+                 stringsAsFactors = FALSE)
+    })
+  })
   
   results <- do.call(
     rbind,
@@ -507,5 +514,9 @@ retrieve_taxonomy_files <- function(
     )
   }
   
+  missing <- setdiff(allowed, results$dataset[results$status %in% c("downloaded", "skipped")])
+  if (length(missing)) warning("Unavailable taxonomy sources: ", paste(missing, collapse=", "),
+                                ". Related sampling, mapping, or comparison functions may be unavailable.",
+                                call. = FALSE)
   invisible(results)
 }

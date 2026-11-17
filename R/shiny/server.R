@@ -16,7 +16,7 @@ library(DT)
 shinyServer(function(input, output, session) {
 
   #Starts volumes and files
-  volumes <- c(NCBI_Tax = "/Users/chico/projects/TaxonSampling/data/NCBI_Taxonomy_data/", TS = "/Users/chico/projects/TaxonSampling/data/TS_data/metadata/", Output = "/Users/chico/antigo_F/lala/", getVolumes()())
+  volumes <- c(NCBI_Tax = "/Users/pereiralobof2/Projects/Francisco/TaxonSampling/data/NCBI_Taxonomy/", TS = "/Users/pereiralobof2/Projects/Francisco/TaxonSampling/data/metadata/", Output = "/Users/pereiralobof2/Projects/Francisco/TaxonSampling/results/", getVolumes()())
 
   #User-provided tabular file linking NCBI Taxonomy IDs to sequence IDs
   shinyFileChoose(input, "user_database_file_path", roots = volumes, session = session)
