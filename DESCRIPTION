@@ -1,0 +1,36 @@
+Package: TaxonSampling
+Type: Package
+Title: Hierarchical Taxonomic Sampling for Maximized Diversity at All Levels
+Version: 0.3.0
+Date: 2026-11-17
+Language: en-US
+Authors@R: c(person("Francisco", "Lobo",
+    email   = "franciscolobo@gmail.com",
+    role    = c("aut", "cre")),
+    person("Felipe", "Campelo",
+    email   = "fcampelo@gmail.com",
+    role    = c("aut")))
+Maintainer: Francisco Lobo <franciscolobo@gmail.com>
+Description: A taxonomical sampling tool to generate samples that maximise 
+             diversity at all taxonomic levels.
+License: GPL-2
+Depends: R (>= 4.1.0)
+Imports: 
+    CHNOSZ (>= 1.4.1),
+    seqinr (>= 4.1),
+    data.table (>= 1.0.0),
+    assertthat (>= 0.2.1),
+    data.tree (>= 1.0.0),
+    networkD3 (>= 0.4.0),
+    duckdb (>= 1.5.6),
+    ape (>= 5.8-1)
+Suggests:
+    testthat (>= 3.0.0),
+    DBI,
+    ggplot2,
+    shiny
+Encoding: UTF-8
+URL: https://github.com/franciscolobo/TaxonSampling
+BugReports: https://github.com/franciscolobo/TaxonSampling/issues/
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0

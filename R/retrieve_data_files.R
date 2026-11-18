@@ -1,0 +1,61 @@
+#' Retrieve data files from the Github repository
+#'
+#' This script downloads relevant data files from the TaxonSampling project
+#' repository. It will extract the data into a folder containing
+#' directories related multi-fasta files from where sequences should be sampled
+#' and metadata files (e.g., table linking NCBI taxon IDs to sequence IDs,
+#' etc.). If the `target.dir` provided does not exist it is created
+#' (recursively) by the function.
+#'
+#' @param target.dir path to the folder where the files will be saved (
+#' accepts relative and absolute paths)
+#' @param method Method to be used for downloading files. Current download
+#' methods are "internal", "wininet" (Windows only) "libcurl", "wget" and
+#' "curl", and there is a value "auto": see _Details_ and _Note_ in the
+#' documentation of \code{utils::download.file()}.
+#' @param unzip The unzip method to be used. See the documentation of
+#' \code{utils::unzip()} for details.
+#' @param ... additional attributes (currently ignored)
+#'
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#'   TaxonSampling::retrieve_data_files(target.dir = "data_files/")
+#' }
+#'
+#' @return No return value, called for side effects (see Description).
+
+retrieve_data_files <- function(target.dir,
+                                method = "auto",
+                                unzip  = getOption("unzip"),
+                                ...){
+
+  # ================== Sanity checks ==================
+  assertthat::assert_that(is.character(target.dir))
+
+  if(!dir.exists(target.dir)){
+    dir.create(target.dir, recursive = TRUE)
+  } else {
+    filelist <- dir(target.dir, full.names = TRUE)
+    unlink(filelist, recursive = TRUE, force = TRUE)
+  }
+
+  url <- "https://github.com/fcampelo/TaxonSampling/raw/master/data/data.zip"
+
+  res1 <- utils::download.file(url,
+                               quiet    = TRUE,
+                               destfile = paste0(target.dir, "/tmpdata.zip"),
+                               cacheOK  = FALSE,
+                               method   = method)
+  if(res1 != 0) stop("Error downloading file \n", url)
+
+  utils::unzip(paste0(target.dir, "/tmpdata.zip"),
+               unzip = unzip,
+               exdir = target.dir)
+  unlink(paste0(target.dir, "/__MACOSX"), recursive = TRUE, force = TRUE)
+
+  file.remove(paste0(target.dir, "/tmpdata.zip"))
+
+  invisible(TRUE)
+}
