@@ -78,7 +78,7 @@ ui <- fluidPage(
         }
       ")),
             tags$script(HTML("Shiny.addCustomMessageHandler('ts_setup_progress',function(x){var a=document.getElementById('ts-activity-live');var l=document.getElementById('ts-log-live');if(a){a.textContent=x.text;if(x.busy!==undefined){var sp=document.getElementById('ts-spinner-live');if(sp)sp.style.display=x.busy?'inline-block':'none';}}if(l&&x.append){var line=document.createElement('div');line.textContent=x.append;l.appendChild(line);l.scrollTop=l.scrollHeight;}});")),
-            tags$style(HTML(".ts-session-summary{margin:0 0 12px}.ts-session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ts-session-card{border:1px solid #d8e1e7;border-radius:7px;padding:11px;background:#f8fafc;min-width:0}.ts-session-label{font-size:11px;letter-spacing:.05em;color:#52677b;font-weight:700}.ts-session-value{font-size:20px;font-weight:700;overflow-wrap:anywhere;margin-top:3px}.ts-session-note{font-size:12px;color:#52677b}.ts-status-line{color:#52677b;font-size:12px;margin-bottom:8px}.ts-run-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}.ts-technical{margin-top:18px;border-top:1px solid #e2e8ee;padding-top:10px}.ts-technical summary{cursor:pointer;font-weight:600}.ts-interpretation{padding:12px;border-left:3px solid #7995a8;background:#f7f9fb;margin:10px 0}@media(max-width:700px){.ts-session-grid{grid-template-columns:1fr}.ts-run-grid{grid-template-columns:1fr}}")),
+            tags$style(HTML(".ts-session-summary{margin:0 0 12px}.ts-session-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ts-session-card{border:1px solid #d8e1e7;border-radius:7px;padding:11px;background:#f8fafc;min-width:0}.ts-session-label{font-size:11px;letter-spacing:.05em;color:#52677b;font-weight:700}.ts-session-value{font-size:20px;font-weight:700;overflow-wrap:anywhere;margin-top:3px}.ts-session-note{font-size:12px;color:#52677b}.ts-status-line{color:#52677b;font-size:12px;margin-bottom:8px}.ts-run-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}.ts-technical{margin-top:18px;border-top:1px solid #e2e8ee;padding-top:10px}.ts-technical summary{cursor:pointer;font-weight:600}.ts-interpretation{padding:12px;border-left:3px solid #7995a8;background:#f7f9fb;margin:10px 0}@media(max-width:700px){.ts-session-grid{grid-template-columns:1fr}.ts-run-grid{grid-template-columns:1fr}}")),
             tags$style(HTML(".ts-analysis-settings{border:1px solid #d5dfe5;border-radius:6px;margin-bottom:14px;background:#f8fafb}.ts-analysis-settings>summary{padding:11px 13px;cursor:pointer}.ts-analysis-settings[open]>summary{border-bottom:1px solid #d5dfe5}.ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
   sidebarLayout(
     sidebarPanel(width = 4,
@@ -642,15 +642,43 @@ server <- function(input, output, session) {
              tags$div(class="ts-session-value", value),
              tags$div(class="ts-session-note", note))
   }
+  # Count input observation rows belonging to the currently configured sampling
+  # root. Use the same observed-node ancestry as run_TS(), not all reference
+  # nodes, and do not count taxa outside the selected clade.
+  input_observations_in_clade <- reactive({
+    req(state$counts)
+    root <- trimws(as.character(if (is.null(input$root)) "" else input$root))
+    nodes <- state$counts$nodes
+    ids <- state$counts$ids_df
+    if (length(root) != 1L || is.na(root) || !nzchar(root) ||
+        !root %in% as.character(nodes$id)) return(NULL)
+    node_ids <- as.character(nodes$id)
+    parents <- as.character(nodes$parent)
+    children <- split(node_ids[!is.na(parents) & node_ids != parents & parents %in% node_ids],
+                      parents[!is.na(parents) & node_ids != parents & parents %in% node_ids])
+    visited <- root
+    frontier <- root
+    while (length(frontier)) {
+      next_frontier <- unlist(children[frontier], use.names=FALSE)
+      next_frontier <- setdiff(next_frontier, visited)
+      if (!length(next_frontier)) break
+      visited <- c(visited, next_frontier)
+      frontier <- next_frontier
+    }
+    sum(as.character(ids$node_id) %in% visited)
+  })
   output$session_summary <- renderUI({
     db_label <- if (!is.null(state$counts)) as.character(state$counts$metadata$taxonomy) else
       if (!is.null(state$db)) tools::file_path_sans_ext(basename(state$db)) else "Not loaded"
     if (length(db_label) != 1L || is.na(db_label) || !nzchar(db_label)) db_label <- "Reference"
     n_input <- if (is.null(state$counts)) "—" else format(nrow(state$counts$ids_df), big.mark=",")
+    n_clade <- if (is.null(state$counts)) NULL else input_observations_in_clade()
     n_sample <- if (is.null(state$result)) "—" else format(nrow(state$result$outputMapping), big.mark=",")
     tags$div(class="ts-session-grid",
              summary_card("REFERENCE", db_label, if (is.null(state$db)) "Load a taxonomy" else "Database loaded"),
              summary_card("INPUT OBSERVATIONS", n_input, if (is.null(state$counts)) "Generate counts" else "Mapped input records"),
+             summary_card("IN SAMPLING CLADE", if (is.null(n_clade)) "—" else format(n_clade, big.mark=","),
+                          if (is.null(state$counts)) "Generate counts" else if (is.null(n_clade)) "Choose a valid sampling root" else "Input records under selected root"),
              summary_card("SAMPLED OBSERVATIONS", n_sample, if (is.null(state$result)) "Run sampling" else "Selected records"))
   })
   output$run_summary <- renderUI({
