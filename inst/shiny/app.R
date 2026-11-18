@@ -140,15 +140,8 @@ ui <- fluidPage(
           actionButton("sample", "Run TaxonSampling"),
           downloadButton("download_selected", "Download sampled taxa (.tsv)"),
           downloadButton("download_result", "Download full result (.rds)")
-        ),
-        tabPanel("4. Visualization",
-          selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
-          numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
-          numericInput("bias_cutoff", parameter_label("Bias cutoff: absolute log2 fold change", "Minimum absolute log2 frequency ratio to color a group as over- or underrepresented; 1 means a twofold difference."), 1, min=0, step=0.25),
-          helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within cutoff. Cutoff 1 = twofold. This is an effect-size threshold, not a statistical significance test."),
-          checkboxInput("labels", parameter_label("Show taxon labels", "Display taxon names next to plotted points; hover over points for full details even when labels are hidden."), FALSE),
-          downloadButton("download_summary", "Download comparison table (.tsv)")
         )
+
       )
     ),
     mainPanel(width=8,
@@ -163,18 +156,42 @@ ui <- fluidPage(
             tags$div(id="ts-log-live"))
         ),
         tabPanel("Database statistics",
-          p("Statistics describe each complete taxonomy database, not the subset of input taxa."),
-          DTOutput("database_statistics"),
-          h4("Cross-taxonomy identity mappings"),
-          p("Mapping counts and ambiguity statistics; not phylogenetic node statistics."),
-          DTOutput("cross_identity_statistics"),
-          h4("Reference taxonomy by rank"),
-          p("Number of nodes and terminal tips at each taxonomic rank in the selected reference database."),
-          DTOutput("reference_table")),
-        tabPanel("Observed nodes", DTOutput("nodes_table")),
-        tabPanel("Mappings", DTOutput("mapping_table")),
-        tabPanel("Selected taxa", DTOutput("selected_table")),
-        tabPanel("Representation",
+          tabsetPanel(id = "database_statistics_tabs",
+            tabPanel("Taxonomy databases",
+              p("Statistics describe each complete taxonomy database, not the subset of input taxa."),
+              DTOutput("database_statistics"),
+              h4("Cross-taxonomy identity mappings"),
+              p("Mapping counts and ambiguity statistics; not phylogenetic node statistics."),
+              DTOutput("cross_identity_statistics")),
+            tabPanel("Reference taxonomy",
+              h4("Reference taxonomy by rank"),
+              p("Number of nodes and terminal tips at each taxonomic rank in the selected reference database."),
+              DTOutput("reference_table"))
+          )
+        ),
+        tabPanel("Input taxa",
+          tabsetPanel(id = "input_taxa_tabs",
+            tabPanel("Observed nodes",
+              p("Nodes in the induced taxonomy and their propagated counts."),
+              DTOutput("nodes_table")),
+            tabPanel("Mappings",
+              p("Mapping of input identifiers to nodes in the selected reference taxonomy."),
+              DTOutput("mapping_table"))
+          )
+        ),
+        tabPanel("Sampling analysis",
+          tabsetPanel(id = "sampling_analysis_tabs",
+            tabPanel("Selected taxa", DTOutput("selected_table")),
+            tabPanel("Representation",
+          h4("Representation controls"),
+          p("These settings also affect Bias analysis and Diversity metrics where applicable."),
+          selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
+          numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
+          numericInput("bias_cutoff", parameter_label("Bias cutoff: absolute log2 fold change", "Minimum absolute log2 frequency ratio to color a group as over- or underrepresented; 1 means a twofold difference."), 1, min=0, step=0.25),
+          helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within cutoff. Cutoff 1 = twofold. This is an effect-size threshold, not a statistical significance test."),
+          checkboxInput("labels", parameter_label("Show taxon labels", "Display taxon names next to plotted points; hover over points for full details even when labels are hidden."), FALSE),
+          downloadButton("download_summary", "Download comparison table (.tsv)"),
+          tags$hr(),
           h4("1. Full reference vs full input database"), plotlyOutput("comparison_reference_input", height="490px"),
           h4("2. Full reference vs sampled dataset"), plotlyOutput("comparison_reference_sample", height="490px"),
           h4("3. Full input database vs sampled dataset"), plotlyOutput("comparison_input_sample", height="490px"),
@@ -182,7 +199,7 @@ ui <- fluidPage(
         tabPanel("Bias analysis",
           h4("Original and sampled taxonomic bias"),
           p("Bias is log2(dataset frequency / reference frequency). Positive values indicate overrepresentation. Negative values indicate underrepresentation."),
-          p("All three views use the taxonomic rank, group limit, and bias cutoff in the Visualization controls."),
+          p("All three views use the taxonomic rank, group limit, and bias cutoff in Sampling analysis / Representation."),
           h4("1. Ranked bias comparison"),
           plotlyOutput("bias_ranked", height="600px"),
           h4("2. Change in absolute bias after sampling"),
@@ -195,7 +212,7 @@ ui <- fluidPage(
         ),
         tabPanel("Diversity metrics",
           h4("Taxonomic diversity and reference representativeness"),
-          p("Metrics use the complete set of groups at the rank selected in Visualization; the maximum plotted groups setting does not affect calculations."),
+          p("Metrics use the complete set of groups at the rank selected in Sampling analysis / Representation; the maximum plotted groups setting does not affect calculations."),
           p("Hill q=0 measures represented groups; q=1 is the effective Shannon diversity; q=2 emphasizes dominant groups. JSD (base 2; 0–1) measures distance from the reference frequency distribution."),
           DTOutput("diversity_metrics_table"),
           downloadButton("download_diversity_metrics", "Download metrics (.tsv)"),
@@ -218,6 +235,8 @@ ui <- fluidPage(
           h4("1. Full reference database"), plotlyOutput("tree_reference", height="520px"),
           h4("2. Full sequence database"), plotlyOutput("tree_input", height="520px"),
           h4("3. Sampled sequences"), plotlyOutput("tree_sampled", height="520px")
+        ),
+          )
         ),
         tabPanel("Run details", verbatimTextOutput("details"))
       )
@@ -643,7 +662,7 @@ server <- function(input, output, session) {
   diversity_metrics_data <- reactive({
     req(state$result)
     validate(need(input$level != "all",
-      "Choose a specific taxonomic rank in Visualization. Overlapping ancestral nodes cannot be used for diversity metrics."))
+      "Choose a specific taxonomic rank in Sampling analysis / Representation. Overlapping ancestral nodes cannot be used for diversity metrics."))
     d <- filtered_comparison()
     validate(need(nrow(d) > 0, "No groups at this taxonomic rank."))
     validate(need(all(colSums(d[, c("background", "input", "sampled")]) > 0),
