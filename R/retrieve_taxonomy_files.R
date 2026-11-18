@@ -22,6 +22,7 @@
 #' @param ott.url URL of the Open Tree Taxonomy archive.
 #' @param opentree.url URL of the OpenTree synthetic phylogeny.
 #' @param quiet Logical. Suppress progress messages.
+#' @param progress_callback Optional function receiving a human-readable status message.
 #' @param ... Additional arguments passed to download.file().
 #'
 #' @return Invisibly returns a data.frame with dataset names,
@@ -58,9 +59,14 @@ retrieve_taxonomy_files <- function(
     ),
     quiet = FALSE,
     continue_on_error = TRUE,
+    progress_callback = NULL,
     ...
 ) {
   
+  notify <- function(text) {
+    if (is.function(progress_callback)) progress_callback(text)
+  }
+
   # ============================================================
   # 1. Validate arguments
   # ============================================================
@@ -277,6 +283,7 @@ retrieve_taxonomy_files <- function(
     # ----------------------------------------------------------
     
     if (dir.exists(destination) && !overwrite) {
+      notify(paste0("Using existing raw taxonomy: ", dataset))
       
       if (!quiet) {
         message(
@@ -335,6 +342,7 @@ retrieve_taxonomy_files <- function(
       )
     }
     
+    notify(paste0("Downloading ", dataset, ": ", filename))
     status <- tryCatch(
       utils::download.file(
         url = url,
@@ -384,6 +392,7 @@ retrieve_taxonomy_files <- function(
         )
       }
       
+      notify(paste0("Extracting ", dataset, ": ", filename))
       extract_archive(
         archive = archive,
         destination = output.dir,
@@ -421,6 +430,7 @@ retrieve_taxonomy_files <- function(
       }
     }
     
+    notify(paste0("Installing raw taxonomy: ", dataset))
     installed <- file.rename(
       output.dir,
       destination

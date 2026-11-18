@@ -15,4 +15,8 @@
 *.duckdb.wal
 *.duckdb.tmp
 
+raw/
+
+taxonomy_db/
+
 data-raw/downloads/

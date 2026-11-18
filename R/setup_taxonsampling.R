@@ -6,6 +6,7 @@
 #' @param overwrite Replace existing sources/databases.
 #' @param include_suppressed Include OTT suppressed taxa in species counts.
 #' @param verbose Display progress messages.
+#' @param progress_callback Optional function receiving a human-readable status message.
 #' @return Invisibly returns a data.frame describing each database build.
 #' @export
 setup_taxonsampling <- function(path = "taxonomy_data",
@@ -14,7 +15,11 @@ setup_taxonsampling <- function(path = "taxonomy_data",
                                 build_cross_identity = TRUE,
                                 overwrite = FALSE,
                                 include_suppressed = TRUE,
-                                verbose = TRUE) {
+                                verbose = TRUE,
+                                progress_callback = NULL) {
+  notify <- function(text) {
+    if (is.function(progress_callback)) progress_callback(text)
+  }
   allowed <- c("ncbi", "ott", "synthetic")
   sources[sources == "opentree"] <- "synthetic"
   if (!length(sources) || anyNA(sources) || any(!sources %in% allowed))
@@ -25,9 +30,11 @@ setup_taxonsampling <- function(path = "taxonomy_data",
   dir.create(raw_dir, recursive=TRUE, showWarnings=FALSE)
   dir.create(db_dir, recursive=TRUE, showWarnings=FALSE)
   if (download) {
+    notify("Starting taxonomy downloads")
     retrieve_taxonomy_files(raw_dir,
       datasets=ifelse(sources=="synthetic", "opentree", sources),
-      overwrite=overwrite, quiet=!verbose, continue_on_error=TRUE)
+      overwrite=overwrite, quiet=!verbose, continue_on_error=TRUE,
+      progress_callback=progress_callback)
   }
   input_dirs <- c(ncbi=file.path(raw_dir,"ncbi"),
                   ott=file.path(raw_dir,"ott"),
@@ -44,6 +51,7 @@ setup_taxonsampling <- function(path = "taxonomy_data",
   for (src in sources) {
     db <- file.path(db_dir, paste0(src,".duckdb"))
     if (file.exists(db) && !overwrite) {
+      notify(paste0("Using existing database: ", src))
       result[[src]] <- data.frame(database=src, status="existing", path=db)
       next
     }
@@ -62,6 +70,7 @@ setup_taxonsampling <- function(path = "taxonomy_data",
         next
       }
     }
+    notify(paste0("Creating database: ", src, ".duckdb"))
     status <- tryCatch({
       build_taxonomy_db(taxonomy_path=input, taxonomy=src, output_dir=db_dir,
                         ott_path=if (src=="synthetic" && dir.exists(input_dirs[["ott"]]))
@@ -73,17 +82,20 @@ setup_taxonsampling <- function(path = "taxonomy_data",
       warning("Failed to build ", src, ": ", conditionMessage(e), call.=FALSE)
       "failed"
     })
+    notify(paste0("Database ", src, ": ", status))
     result[[src]] <- data.frame(database=src, status=status, path=db)
   }
   cross_db <- file.path(db_dir, "cross_identity.duckdb")
   if (build_cross_identity) {
     if (file.exists(cross_db) && !overwrite) {
       cross_status <- "existing"
+      notify("Using existing database: cross_identity")
       if (any(vapply(result, function(x) x$status=="built", logical(1)))) {
         warning("Cross-identity database was not rebuilt despite new taxonomy builds; ",
                 "consider overwrite=TRUE to synchronize versions.", call.=FALSE)
       }
     } else {
+      notify("Creating database: cross_identity.duckdb")
       cross_status <- tryCatch({
         build_cross_identity_db(db_dir, output_path=cross_db, overwrite=overwrite,
                                 verbose=verbose)
@@ -93,12 +105,14 @@ setup_taxonsampling <- function(path = "taxonomy_data",
         "unavailable"
       })
     }
+    notify(paste0("Database cross_identity: ", cross_status))
     result[["cross_identity"]] <- data.frame(database="cross_identity",
                                                status=cross_status, path=cross_db)
   }
   out <- do.call(rbind, result)
   rownames(out) <- NULL
   if (verbose) print(out, row.names=FALSE)
+  notify("Taxonomy database setup finished")
   invisible(out)
 }
 
