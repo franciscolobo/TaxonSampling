@@ -78,6 +78,7 @@ ui <- fluidPage(
         }
       ")),
             tags$script(HTML("Shiny.addCustomMessageHandler('ts_setup_progress',function(x){var a=document.getElementById('ts-activity-live');var l=document.getElementById('ts-log-live');if(a){a.textContent=x.text;if(x.busy!==undefined){var sp=document.getElementById('ts-spinner-live');if(sp)sp.style.display=x.busy?'inline-block':'none';}}if(l&&x.append){var line=document.createElement('div');line.textContent=x.append;l.appendChild(line);l.scrollTop=l.scrollHeight;}});")),
+            tags$style(HTML(".ts-session-summary{margin:0 0 12px}.ts-session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.ts-session-card{border:1px solid #d8e1e7;border-radius:7px;padding:11px;background:#f8fafc;min-width:0}.ts-session-label{font-size:11px;letter-spacing:.05em;color:#52677b;font-weight:700}.ts-session-value{font-size:20px;font-weight:700;overflow-wrap:anywhere;margin-top:3px}.ts-session-note{font-size:12px;color:#52677b}.ts-status-line{color:#52677b;font-size:12px;margin-bottom:8px}.ts-run-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}.ts-technical{margin-top:18px;border-top:1px solid #e2e8ee;padding-top:10px}.ts-technical summary{cursor:pointer;font-weight:600}.ts-interpretation{padding:12px;border-left:3px solid #7995a8;background:#f7f9fb;margin:10px 0}@media(max-width:700px){.ts-session-grid{grid-template-columns:1fr}.ts-run-grid{grid-template-columns:1fr}}")),
             tags$style(HTML(".ts-analysis-settings{border:1px solid #d5dfe5;border-radius:6px;margin-bottom:14px;background:#f8fafb}.ts-analysis-settings>summary{padding:11px 13px;cursor:pointer}.ts-analysis-settings[open]>summary{border-bottom:1px solid #d5dfe5}.ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
   sidebarLayout(
     sidebarPanel(width = 4,
@@ -145,7 +146,8 @@ ui <- fluidPage(
                  )
     ),
     mainPanel(width=8,
-              verbatimTextOutput("status"),
+              div(class="ts-session-summary", uiOutput("session_summary")),
+              div(class="ts-status-line", textOutput("status")),
               tabsetPanel(
                 tabPanel("Activity log",
                          p("Taxonomy setup, input-taxon mapping, and sampling operations."),
@@ -181,7 +183,9 @@ ui <- fluidPage(
                 ),
                 tabPanel("Sampling results",
                          tabsetPanel(id="sampling_results_tabs",
-                                     tabPanel("Run details", verbatimTextOutput("details")),
+                                     tabPanel("Run details", uiOutput("run_summary"),
+                                              tags$details(class="ts-technical", tags$summary("Technical details"),
+                                                           verbatimTextOutput("details"))),
                                      tabPanel("Selected taxa", DTOutput("selected_table"))
                          )
                 ),
@@ -233,7 +237,7 @@ ui <- fluidPage(
                                               plotlyOutput("diversity_hill_plot", height="380px"),
                                               h4("Divergence from the reference"),
                                               plotlyOutput("diversity_jsd_plot", height="380px"),
-                                              verbatimTextOutput("diversity_interpretation"),
+                                              div(class="ts-interpretation", textOutput("diversity_interpretation")),
                                               tags$hr(),
                                               p("Interpretation: frequencies are normalized among groups present at the chosen rank, not over the entire taxonomy. Missing/unranked lineages outside that rank are excluded. 'All observed nodes' cannot be used because overlapping ancestors do not form a partition. Species-level or sparsely populated ranks may give misleading comparisons; use a shared rank with adequate coverage. Counts may represent distinct IDs or backbone nodes according to the input settings, rather than sequence records. Reference group coverage is the fraction of reference groups represented, not a sample-size-adjusted richness estimate.")
                                      ),
@@ -631,6 +635,110 @@ server <- function(input, output, session) {
     }
     if (!is.null(state$result)) print(state$result$ts.params)
   })
+  # Readable, persistent session state; no expensive database queries.
+  summary_card <- function(label, value, note) {
+    tags$div(class="ts-session-card",
+             tags$div(class="ts-session-label", label),
+             tags$div(class="ts-session-value", value),
+             tags$div(class="ts-session-note", note))
+  }
+  output$session_summary <- renderUI({
+    db_label <- if (!is.null(state$counts)) as.character(state$counts$metadata$taxonomy) else
+      if (!is.null(state$db)) tools::file_path_sans_ext(basename(state$db)) else "Not loaded"
+    if (length(db_label) != 1L || is.na(db_label) || !nzchar(db_label)) db_label <- "Reference"
+    n_input <- if (is.null(state$counts)) "—" else format(nrow(state$counts$ids_df), big.mark=",")
+    n_sample <- if (is.null(state$result)) "—" else format(nrow(state$result$outputMapping), big.mark=",")
+    tags$div(class="ts-session-grid",
+             summary_card("REFERENCE", db_label, if (is.null(state$db)) "Load a taxonomy" else "Database loaded"),
+             summary_card("INPUT OBSERVATIONS", n_input, if (is.null(state$counts)) "Generate counts" else "Mapped input records"),
+             summary_card("SAMPLED OBSERVATIONS", n_sample, if (is.null(state$result)) "Run sampling" else "Selected records"))
+  })
+  output$run_summary <- renderUI({
+    req(state$result)
+    params <- state$result$ts.params
+    root_id <- state$sampled_root
+    nodes <- state$counts$nodes
+    idx <- match(as.character(root_id), as.character(nodes$id))
+    root_name <- if (!is.na(idx)) as.character(nodes$name[idx]) else as.character(root_id)
+    requested <- if (!is.null(params$m)) params$m else input$m
+    method <- if (!is.null(params$method)) params$method else input$method
+    tags$div(
+      h4("Sampling summary"),
+      tags$div(class="ts-run-grid",
+               summary_card("REQUESTED OBSERVATIONS", as.character(requested), "Sampling target"),
+               summary_card("SELECTED OBSERVATIONS", format(nrow(state$result$outputMapping), big.mark=","), "Actual output"),
+               summary_card("SAMPLING ROOT", root_name, paste("ID:", root_id)),
+               summary_card("METHOD", as.character(method), "Sampling strategy")),
+      if (nrow(state$result$outputMapping) < as.integer(requested))
+        tags$p("The method returned fewer observations than requested.", style="color:#8a5300")
+    )
+  })
+
+  # Rank availability is computed from the active reference, not hard-coded
+  # assumptions about a root's rank (custom trees may omit intermediate ranks).
+  rank_order <- c("phylum", "class", "order", "family", "genus", "species")
+  rank_names <- tools::toTitleCase(rank_order)
+  rank_choices <- function(ranks) stats::setNames(ranks, rank_names[match(ranks, rank_order)])
+  available_ranks <- function(scope) {
+    req(state$db)
+    if (identical(scope, "root")) req(state$result, state$sampled_root)
+    con <- DBI::dbConnect(duckdb::duckdb(), dbdir=state$db, read_only=TRUE)
+    on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
+    if (identical(scope, "root")) {
+      sql <- paste(
+        "WITH RECURSIVE subtree AS (SELECT id FROM nodes WHERE id = ?",
+        "UNION ALL SELECT n.id FROM nodes n JOIN subtree s ON n.parent = s.id",
+        "WHERE n.id <> s.id)",
+        "SELECT DISTINCT lower(trim(n.rank)) AS rank FROM nodes n",
+        "JOIN subtree s ON n.id = s.id WHERE n.rank IS NOT NULL")
+      found <- DBI::dbGetQuery(con, sql, params=list(state$sampled_root))$rank
+    } else {
+      found <- DBI::dbGetQuery(con,
+                               "SELECT DISTINCT lower(trim(rank)) AS rank FROM nodes WHERE rank IS NOT NULL")$rank
+    }
+    rank_order[rank_order %in% found]
+  }
+  # Cache each scope's rank query until the reference or sampled root changes.
+  full_ranks <- reactive({ state$db; available_ranks("whole") })
+  clade_ranks <- reactive({ state$db; state$sampled_root; available_ranks("root") })
+  ranks_for <- function(scope) if (identical(scope, "root")) clade_ranks() else full_ranks()
+  for (view in c("representation", "bias", "diversity")) {
+    local({
+      prefix <- view
+      observeEvent(list(input[[paste0(prefix, "_scope")]], state$db, state$sampled_root), {
+        scope <- input[[paste0(prefix, "_scope")]]
+        if (is.null(state$db) || (identical(scope, "root") && is.null(state$result))) return()
+        choices <- ranks_for(scope)
+        if (prefix != "diversity" && !identical(scope, "root")) choices <- c(choices, "all")
+        labels <- c(rank_choices(choices[choices != "all"]),
+                    if ("all" %in% choices) c("All observed nodes"="all"))
+        current <- isolate(input[[paste0(prefix, "_rank")]])
+        selected <- if (current %in% choices) current else if ("class" %in% choices) "class" else if (length(choices)) choices[1] else character(0)
+        updateSelectInput(session, paste0(prefix, "_rank"), choices=labels, selected=selected)
+      }, ignoreInit=FALSE)
+    })
+  }
+  observeEvent(list(input$treemap_scope, state$db, state$sampled_root), {
+    scope <- input$treemap_scope
+    if (is.null(state$db) || (identical(scope, "root") && is.null(state$result))) return()
+    ranks <- ranks_for(scope)
+    parents <- ranks[match(ranks, rank_order) < max(match(ranks, rank_order))]
+    if (!length(parents)) return()
+    current <- isolate(input$tree_root_rank)
+    selected <- if (current %in% parents) current else parents[1]
+    updateSelectInput(session, "tree_root_rank", choices=rank_choices(parents), selected=selected)
+  }, ignoreInit=FALSE)
+  observeEvent(list(input$tree_root_rank, input$treemap_scope, state$db, state$sampled_root), {
+    scope <- input$treemap_scope
+    if (is.null(state$db) || (identical(scope, "root") && is.null(state$result))) return()
+    ranks <- ranks_for(scope)
+    parent <- input$tree_root_rank
+    children <- ranks[match(ranks, rank_order) > match(parent, rank_order)]
+    current <- isolate(input$tree_child_rank)
+    selected <- if (current %in% children) current else if (length(children)) children[1] else character(0)
+    updateSelectInput(session, "tree_child_rank", choices=rank_choices(children), selected=selected)
+  }, ignoreInit=FALSE)
+
   # Counts are already propagated to ancestors by get_counts(); sampling
   # counts must instead be propagated from selected backbone node IDs.
   comparison_data <- reactive({
