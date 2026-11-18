@@ -185,6 +185,8 @@ ui <- fluidPage(
                                      tabPanel("Selected taxa", DTOutput("selected_table")),
                                      tabPanel("Representation",
                                               h4("Representation controls"),
+                                              radioButtons("comparison_scope", parameter_label("Taxonomic scope", "Whole taxonomy compares the original dataset with the complete reference. Sampling clade recalculates distributions using only the root clade used for the most recent sampling run."), choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
+                                              textOutput("scope_description"),
                                               p("These settings also affect Bias analysis and Diversity metrics where applicable."),
                                               selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
                                               numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
@@ -228,6 +230,7 @@ ui <- fluidPage(
                                      tabPanel("Treemaps",
                                               h4("Hierarchical taxonomic representation"),
                                               p("Choose a parent rank and its nested child rank. Rectangle areas represent counts; hover to inspect taxa."),
+                                              p("Treemaps currently show the complete reference backbone and are independent of the taxonomic scope selected under Representation."),
                                               fluidRow(
                                                 column(6, selectInput("tree_root_rank", parameter_label("Parent rank", "Top-level taxonomic groups displayed as outer rectangles."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus"), selected="phylum")),
                                                 column(6, selectInput("tree_child_rank", parameter_label("Nested rank", "Descendant taxonomic rank nested within each parent group. Must be lower than the parent rank."), c("Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"))
@@ -282,7 +285,7 @@ server <- function(input, output, session) {
   bind_directory("browse_ott_dir", "ott_path")
   bind_directory("browse_output_dir", "output_dir")
   bind_directory("browse_setup_dir", "setup_dir")
-  state <- reactiveValues(db=NULL, counts=NULL, result=NULL, message="Choose an existing reference database or build one.")
+  state <- reactiveValues(db=NULL, counts=NULL, result=NULL, sampled_root=NULL, message="Choose an existing reference database or build one.")
   # Restore the last selected reference database when it is still available.
   observeEvent(TRUE, {
     saved <- .ts_read_paths()
@@ -480,7 +483,7 @@ server <- function(input, output, session) {
       if (!valid) stop("Selected file is not a TaxonSampling taxonomy database.")
       state$db <- normalizePath(path, mustWork=TRUE)
       .ts_save_paths(workspace=trimws(input$setup_dir), database=state$db)
-      state$counts <- NULL; state$result <- NULL
+      state$counts <- NULL; state$result <- NULL; state$sampled_root <- NULL
       updateTextInput(session, "db_path", value=state$db)
       state$message <- paste("Sampling backbone loaded:", state$db)
     }, error=report_error)
@@ -498,7 +501,7 @@ server <- function(input, output, session) {
       state$db <- as.character(path)
       .ts_save_paths(database=state$db)
       updateTextInput(session, "db_path", value=state$db)
-      state$counts <- NULL; state$result <- NULL
+      state$counts <- NULL; state$result <- NULL; state$sampled_root <- NULL
       state$message <- paste("Reference database created:", state$db)
     }, error=report_error)
   })
@@ -508,7 +511,7 @@ server <- function(input, output, session) {
       con <- DBI::dbConnect(duckdb::duckdb(), dbdir=path, read_only=FALSE)
       on.exit(DBI::dbDisconnect(con, shutdown=TRUE))
       if (!all(c("nodes", "metadata") %in% DBI::dbListTables(con))) stop("Not a TaxonSampling reference database")
-      state$db <- path; state$counts <- NULL; state$result <- NULL
+      state$db <- path; state$counts <- NULL; state$result <- NULL; state$sampled_root <- NULL
       .ts_save_paths(database=state$db)
       state$message <- paste("Reference database loaded:", path)
     }, error=report_error)
@@ -574,7 +577,7 @@ server <- function(input, output, session) {
       if (!is.list(counts) || is.null(counts$nodes) || is.null(counts$ids_df)) {
         stop("get_counts() returned an unexpected result; verify the installed TaxonSampling version.", call.=FALSE)
       }
-      state$counts <- counts; state$result <- NULL
+      state$counts <- counts; state$result <- NULL; state$sampled_root <- NULL
       roots <- counts$nodes$id[is.na(counts$nodes$parent) | !(counts$nodes$parent %in% counts$nodes$id) | counts$nodes$parent == counts$nodes$id]
       if (length(roots)) updateTextInput(session, "root", value=as.character(roots[1]))
       state$message <- sprintf("Counts prepared: %s mapped taxon/sequence pairs; %s observed nodes; %s unmapped IDs.", nrow(counts$ids_df), nrow(counts$nodes), length(counts$unmapped_ids))
@@ -601,6 +604,7 @@ server <- function(input, output, session) {
         requireIDs=parse_ids(input$require), sampling=input$sampling
       )
       state$result <- result
+      state$sampled_root <- root
       state$message <- sprintf("Sampling complete: selected %d observations (requested %d).", nrow(result$outputMapping), as.integer(input$m))
     }, error=report_error)
   })
@@ -637,8 +641,53 @@ server <- function(input, output, session) {
                background=as.numeric(bg), input=obs, sampled=sampled,
                stringsAsFactors=FALSE)
   })
+  # Use the root captured at sampling time, not a potentially edited input field.
+  # Fetch ALL reference nodes at the selected rank within the sampled subtree,
+  # including taxa with no input observations (zero observed/sampled counts).
+  scoped_comparison <- reactive({
+    req(state$result, state$sampled_root, state$db)
+    rank <- input$level
+    validate(need(rank != "all", "Select a specific rank for sampling-clade comparisons."))
+    con <- DBI::dbConnect(duckdb::duckdb(), dbdir=state$db, read_only=TRUE)
+    on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
+    root_row <- DBI::dbGetQuery(con,
+                                "SELECT id, name, rank FROM nodes WHERE id = ? LIMIT 1", params=list(state$sampled_root))
+    validate(need(nrow(root_row) == 1L, "Sampling root is absent from the current reference database."))
+    # DuckDB recursive traversal includes the selected root itself.
+    ref <- DBI::dbGetQuery(con, paste(
+      "WITH RECURSIVE subtree AS (",
+      " SELECT id, parent, name, rank, species_count, tip_count, 0 AS distance",
+      " FROM nodes WHERE id = ?",
+      " UNION ALL",
+      " SELECT n.id, n.parent, n.name, n.rank, n.species_count, n.tip_count, s.distance + 1",
+      " FROM nodes n JOIN subtree s ON n.parent = s.id",
+      " WHERE n.id <> s.id AND s.distance < 100",
+      ") SELECT id, name, rank, species_count, tip_count FROM subtree",
+      "WHERE lower(trim(rank)) = ?"), params=list(state$sampled_root, rank))
+    validate(need(nrow(ref) > 0L,
+                  paste0("No ", rank, " nodes below the sampling root (", root_row$name[[1]],
+                         ", rank: ", root_row$rank[[1]], "). Select a rank at or below the root.")))
+    observed <- comparison_data()
+    idx <- match(as.character(ref$id), as.character(observed$id))
+    unit <- state$counts$metadata$background_unit
+    background <- if (identical(unit, "tips")) ref$tip_count else ref$species_count
+    value_or_zero <- function(x) { x[is.na(x)] <- 0; as.numeric(x) }
+    data.frame(id=as.character(ref$id), name=as.character(ref$name),
+               rank=as.character(ref$rank), background=as.numeric(background),
+               input=value_or_zero(observed$input[idx]),
+               sampled=value_or_zero(observed$sampled[idx]), stringsAsFactors=FALSE)
+  })
+
+  output$scope_description <- renderText({
+    if (!identical(input$comparison_scope, "root"))
+      return("Global view: reference and observed frequencies use the selected rank across the complete taxonomy.")
+    if (is.null(state$result) || is.null(state$sampled_root))
+      return("Run sampling first to enable a sampling-clade comparison.")
+    paste("Sampling-clade view: frequencies are normalized within the sampled root:", state$sampled_root)
+  })
+
   filtered_comparison <- reactive({
-    d <- comparison_data()
+    d <- if (identical(input$comparison_scope, "root")) scoped_comparison() else comparison_data()
     if (input$level != "all") {
       d <- d[!is.na(d$rank) & tolower(d$rank) == input$level, , drop=FALSE]
     }
@@ -1168,7 +1217,7 @@ server <- function(input, output, session) {
   output$download_counts <- downloadHandler(filename=function() "taxonsampling_counts.rds", content=function(file) {req(state$counts); saveRDS(state$counts, file)})
   output$download_result <- downloadHandler(filename=function() "taxonsampling_result.rds", content=function(file) {req(state$result); saveRDS(state$result, file)})
   output$download_selected <- downloadHandler(filename=function() "taxonsampling_selected.tsv", content=function(file) {req(state$result); write.table(state$result$outputMapping, file, sep="\t", quote=FALSE, row.names=FALSE)})
-  output$download_summary <- downloadHandler(filename=function() "taxonsampling_comparison.tsv", content=function(file) {write.table(filtered_comparison(), file, sep="\t", quote=FALSE, row.names=FALSE)})
+  output$download_summary <- downloadHandler(filename=function() paste0("taxonsampling_comparison_", input$comparison_scope, ".tsv"), content=function(file) {write.table(filtered_comparison(), file, sep="\t", quote=FALSE, row.names=FALSE)})
 }
 
 shinyApp(ui, server)
