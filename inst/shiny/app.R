@@ -21,7 +21,7 @@ parameter_label <- function(label, description) {
 # Paths to local reference files are entered on the host running Shiny.
 ui <- fluidPage(
   titlePanel("TaxonSampling | phylogeny-aware sampling"),
-      tags$head(tags$style(HTML("
+  tags$head(tags$style(HTML("
         .ts-help-icon { display:inline-flex; align-items:center; justify-content:center;
           width:15px; height:15px; margin-left:3px; border:1px solid #607d91;
           border-radius:50%; color:#37627c; font-size:11px; font-weight:700;
@@ -38,145 +38,148 @@ ui <- fluidPage(
           text-align:left; pointer-events:none;
         }
       ")),
-      tags$script(HTML("Shiny.addCustomMessageHandler('ts_setup_progress',function(x){var a=document.getElementById('ts-activity-live');var l=document.getElementById('ts-log-live');if(a){a.textContent=x.text;if(x.busy!==undefined){var sp=document.getElementById('ts-spinner-live');if(sp)sp.style.display=x.busy?'inline-block':'none';}}if(l&&x.append){var line=document.createElement('div');line.textContent=x.append;l.appendChild(line);l.scrollTop=l.scrollHeight;}});")),
-      tags$style(HTML(".ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
+            tags$script(HTML("Shiny.addCustomMessageHandler('ts_setup_progress',function(x){var a=document.getElementById('ts-activity-live');var l=document.getElementById('ts-log-live');if(a){a.textContent=x.text;if(x.busy!==undefined){var sp=document.getElementById('ts-spinner-live');if(sp)sp.style.display=x.busy?'inline-block':'none';}}if(l&&x.append){var line=document.createElement('div');line.textContent=x.append;l.appendChild(line);l.scrollTop=l.scrollHeight;}});")),
+            tags$style(HTML(".ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
   sidebarLayout(
     sidebarPanel(width = 4,
-      tags$img(src = "TS_logo.png", style = "max-width:180px;max-height:100px;"),
-      tabsetPanel(id = "workflow",
-        tabPanel("1. Taxonomy databases",
-          p("Download raw NCBI, OTT, and OpenTree Synthetic sources and build the three taxonomy databases plus their cross-identity database."),
-          textInput("setup_dir", parameter_label("Taxonomy workspace (server path)", "Raw files are stored in raw/ and databases in taxonomy_db/ under this directory."), "taxonomy_data"),
-          shinyDirButton("browse_setup_dir", "Browse workspace", "Choose taxonomy workspace"),
-          checkboxGroupInput("setup_sources", "Taxonomy sources", choices=c("NCBI Taxonomy"="ncbi", "Open Tree Taxonomy (OTT)"="ott", "OpenTree Synthetic phylogeny"="synthetic"), selected=c("ncbi", "ott", "synthetic")),
-          checkboxInput("setup_download", "Download raw files before building", TRUE),
-          checkboxInput("setup_cross", "Build cross-identity database (fourth database)", TRUE),
-          checkboxInput("include_suppressed", parameter_label("Include suppressed OTT taxa", "Include flagged OTT taxa in background species counts."), TRUE),
-          checkboxInput("overwrite", parameter_label("Overwrite existing files/databases", "Re-download and rebuild selected resources; potentially expensive."), FALSE),
-          actionButton("setup_all", "Download and build databases", class="btn-primary"),
-          actionButton("refresh_db_stats", "Refresh database statistics"),
-          tags$hr(),
-          selectInput("active_backbone", "Sampling backbone", choices=c("NCBI"="ncbi", "OTT"="ott", "Synthetic"="synthetic")),
-          actionButton("load_backbone", "Load selected backbone"),
-          tags$hr(),
-          tags$details(
-            tags$summary("Advanced: custom tree or existing database"),
-            textInput("taxonomy_path", "Extracted taxonomy directory / Newick file", ""),
-            shinyFilesButton("browse_taxonomy_file", "Browse file", "Select Newick or taxonomy file", multiple=FALSE),
-            shinyDirButton("browse_taxonomy_dir", "Browse directory", "Select extracted taxonomy directory"),
-            selectInput("taxonomy", "Reference type", c("NCBI"="ncbi", "OTT"="ott", "Synthetic"="synthetic", "Custom Newick"="custom")),
-            textInput("ott_path", "OTT directory for synthetic annotations (optional)", ""),
-            shinyDirButton("browse_ott_dir", "Browse OTT directory", "Select OTT directory"),
-            textInput("output_dir", "Advanced database output directory", "taxonomy_db"),
-            shinyDirButton("browse_output_dir", "Browse output directory", "Select database output directory"),
-            textInput("db_name", "Database filename (optional)", ""),
-            actionButton("build", "Build single database"),
-            textInput("db_path", "Existing DuckDB file", "taxonomy_data/taxonomy_db/ncbi.duckdb"),
-            shinyFilesButton("browse_db_file", "Browse database", "Select DuckDB database", multiple=FALSE),
-            actionButton("inspect", "Inspect existing database")
-          )
-        ),
-        tabPanel("2. Input taxa",
-          fileInput("taxa_file", parameter_label("Taxon / sequence ID TSV (headerless, two columns)", "Upload a headerless file with two columns: taxon identifier and sequence/observation identifier. Multiple rows may share a taxon."), accept=c(".tsv", ".txt", ".csv")),
-          helpText("One row per taxon–sequence pair. IDs are strings; retain leading zeros. Use the same taxon with multiple sequence IDs if needed."),
-          selectInput("id_type", parameter_label("Identifier namespace", "Identifier system used by the uploaded taxa: NCBI TaxIDs, OTT IDs, or identifiers native to the selected backbone."), c("NCBI"="ncbi", "OTT"="ott", "Native backbone ID"="native")),
-          selectInput("count_mode", parameter_label("Observation unit", "Choose whether input counts represent distinct supplied taxon IDs or distinct mapped nodes in the reference backbone."), c("Distinct input taxon IDs"="input_ids", "Distinct mapped backbone nodes"="backbone_nodes")),
-          selectInput("background_unit", parameter_label("Background unit", "Reference diversity measure: descendant species-level taxa or terminal tips. Tips are useful for custom trees."), c("Species"="species", "Terminal tips"="tips")),
-          selectInput("missing_ids", parameter_label("Unmapped identifiers", "What to do when an uploaded identifier cannot be mapped to the reference: warn, drop, or stop with an error."), c("Warn"="warn", "Drop"="drop", "Error"="error")),
-          selectInput("duplicate_ids", parameter_label("Repeated identical taxon/sequence pairs", "How to handle duplicate rows with the same taxon and sequence identifiers."), c("Keep first"="first", "Error"="error")),
-          actionButton("count", "Prepare dataset counts"),
-          downloadButton("download_counts", "Download count object (.rds)")
-        ),
-        tabPanel("3. Sampling",
-          textInput("root", parameter_label("Root node ID (native backbone identifier)", "Root of the clade to sample from, using the native node ID in the observed nodes table."), ""),
-          helpText("Use an ID from the observed nodes table. OTT IDs in synthetic trees may use the ott: prefix."),
-          numericInput("m", parameter_label("Number of observations", "Requested number of taxon/sequence observations to select. Some strategies may return fewer."), 100, min=1, step=1),
-          selectInput("method", parameter_label("Method", "Diversity prioritizes representation across the reference hierarchy; balanced is experimental and may undersample."), c("Diversity"="diversity", "Balanced (experimental)"="balanced")),
-          selectInput("randomize", parameter_label("Randomization", "No: deterministic selection; Yes: randomized selection; After first round: randomize subsequent selection rounds."), c("After first round"="after_first_round", "Yes"="yes", "No"="no")),
-          selectInput("sampling", parameter_label("Sampling mode", "Known species uses species-level information; agnostic uses the hierarchy without requiring species-level interpretation."), c("Known species"="known_species", "Agnostic"="agnostic")),
-          checkboxInput("replacement", parameter_label("Sample with replacement", "Allow the same eligible observation to be selected more than once."), FALSE),
-          textAreaInput("ignore", parameter_label("Exclude clade IDs (comma / newline separated)", "Native IDs of clades to exclude from sampling; separate multiple IDs with commas or new lines."), "", rows=2),
-          textAreaInput("require", parameter_label("Require clade IDs (comma / newline separated)", "Native IDs of clades to require during sampling; separate multiple IDs with commas or new lines."), "", rows=2),
-          numericInput("seed", parameter_label("Random seed", "Seed used to make randomized sampling reproducible when inputs and software versions are unchanged."), 1, min=0, step=1),
-          actionButton("sample", "Run TaxonSampling"),
-          downloadButton("download_selected", "Download sampled taxa (.tsv)"),
-          downloadButton("download_result", "Download full result (.rds)")
-        ),
-        tabPanel("4. Visualization",
-          selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
-          numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
-          numericInput("bias_cutoff", parameter_label("Bias cutoff: absolute log2 fold change", "Minimum absolute log2 frequency ratio to color a group as over- or underrepresented; 1 means a twofold difference."), 1, min=0, step=0.25),
-          helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within cutoff. Cutoff 1 = twofold. This is an effect-size threshold, not a statistical significance test."),
-          checkboxInput("labels", parameter_label("Show taxon labels", "Display taxon names next to plotted points; hover over points for full details even when labels are hidden."), FALSE),
-          downloadButton("download_summary", "Download comparison table (.tsv)")
-        )
-      )
+                 tags$img(src = "TS_logo.png", style = "max-width:180px;max-height:100px;"),
+                 tabsetPanel(id = "workflow",
+                             tabPanel("1. Taxonomy databases",
+                                      p("Download raw NCBI, OTT, and OpenTree Synthetic sources and build the three taxonomy databases plus their cross-identity database."),
+                                      textInput("setup_dir", parameter_label("Taxonomy workspace (server path)", "Raw files are stored in raw/ and databases in taxonomy_db/ under this directory."), "taxonomy_data"),
+                                      shinyDirButton("browse_setup_dir", "Browse workspace", "Choose taxonomy workspace"),
+                                      checkboxGroupInput("setup_sources", "Taxonomy sources", choices=c("NCBI Taxonomy"="ncbi", "Open Tree Taxonomy (OTT)"="ott", "OpenTree Synthetic phylogeny"="synthetic"), selected=c("ncbi", "ott", "synthetic")),
+                                      checkboxInput("setup_download", "Download raw files before building", TRUE),
+                                      checkboxInput("setup_cross", "Build cross-identity database (fourth database)", TRUE),
+                                      checkboxInput("include_suppressed", parameter_label("Include suppressed OTT taxa", "Include flagged OTT taxa in background species counts."), TRUE),
+                                      checkboxInput("overwrite", parameter_label("Overwrite existing files/databases", "Re-download and rebuild selected resources; potentially expensive."), FALSE),
+                                      actionButton("setup_all", "Download and build databases", class="btn-primary"),
+                                      actionButton("refresh_db_stats", "Refresh database statistics"),
+                                      tags$hr(),
+                                      selectInput("active_backbone", "Sampling backbone", choices=c("NCBI"="ncbi", "OTT"="ott", "Synthetic"="synthetic")),
+                                      actionButton("load_backbone", "Load selected backbone"),
+                                      tags$hr(),
+                                      tags$details(
+                                        tags$summary("Advanced: custom tree or existing database"),
+                                        textInput("taxonomy_path", "Extracted taxonomy directory / Newick file", ""),
+                                        shinyFilesButton("browse_taxonomy_file", "Browse file", "Select Newick or taxonomy file", multiple=FALSE),
+                                        shinyDirButton("browse_taxonomy_dir", "Browse directory", "Select extracted taxonomy directory"),
+                                        selectInput("taxonomy", "Reference type", c("NCBI"="ncbi", "OTT"="ott", "Synthetic"="synthetic", "Custom Newick"="custom")),
+                                        textInput("ott_path", "OTT directory for synthetic annotations (optional)", ""),
+                                        shinyDirButton("browse_ott_dir", "Browse OTT directory", "Select OTT directory"),
+                                        textInput("output_dir", "Advanced database output directory", "taxonomy_db"),
+                                        shinyDirButton("browse_output_dir", "Browse output directory", "Select database output directory"),
+                                        textInput("db_name", "Database filename (optional)", ""),
+                                        actionButton("build", "Build single database"),
+                                        textInput("db_path", "Existing DuckDB file", "taxonomy_data/taxonomy_db/ncbi.duckdb"),
+                                        shinyFilesButton("browse_db_file", "Browse database", "Select DuckDB database", multiple=FALSE),
+                                        actionButton("inspect", "Inspect existing database")
+                                      )
+                             ),
+                             tabPanel("2. Input taxa",
+                                      fileInput("taxa_file", parameter_label("Taxon / sequence ID TSV (headerless, two columns)", "Upload a headerless file with two columns: taxon identifier and sequence/observation identifier. Multiple rows may share a taxon."), accept=c(".tsv", ".txt", ".csv")),
+                                      helpText("One row per taxon–sequence pair. IDs are strings; retain leading zeros. Use the same taxon with multiple sequence IDs if needed."),
+                                      selectInput("id_type", parameter_label("Identifier namespace", "Identifier system used by the uploaded taxa: NCBI TaxIDs, OTT IDs, or identifiers native to the selected backbone."), c("NCBI"="ncbi", "OTT"="ott", "Native backbone ID"="native")),
+                                      selectInput("count_mode", parameter_label("Observation unit", "Choose whether input counts represent distinct supplied taxon IDs or distinct mapped nodes in the reference backbone."), c("Distinct input taxon IDs"="input_ids", "Distinct mapped backbone nodes"="backbone_nodes")),
+                                      selectInput("background_unit", parameter_label("Background unit", "Reference diversity measure: descendant species-level taxa or terminal tips. Tips are useful for custom trees."), c("Species"="species", "Terminal tips"="tips")),
+                                      selectInput("missing_ids", parameter_label("Unmapped identifiers", "What to do when an uploaded identifier cannot be mapped to the reference: warn, drop, or stop with an error."), c("Warn"="warn", "Drop"="drop", "Error"="error")),
+                                      selectInput("duplicate_ids", parameter_label("Repeated identical taxon/sequence pairs", "How to handle duplicate rows with the same taxon and sequence identifiers."), c("Keep first"="first", "Error"="error")),
+                                      actionButton("count", "Prepare dataset counts"),
+                                      downloadButton("download_counts", "Download count object (.rds)")
+                             ),
+                             tabPanel("3. Sampling",
+                                      textInput("root", parameter_label("Root node ID (native backbone identifier)", "Root of the clade to sample from, using the native node ID in the observed nodes table."), ""),
+                                      helpText("Use an ID from the observed nodes table. OTT IDs in synthetic trees may use the ott: prefix."),
+                                      numericInput("m", parameter_label("Number of observations", "Requested number of taxon/sequence observations to select. Some strategies may return fewer."), 100, min=1, step=1),
+                                      selectInput("method", parameter_label("Method", "Diversity prioritizes representation across the reference hierarchy; balanced is experimental and may undersample."), c("Diversity"="diversity", "Balanced (experimental)"="balanced")),
+                                      selectInput("randomize", parameter_label("Randomization", "No: deterministic selection; Yes: randomized selection; After first round: randomize subsequent selection rounds."), c("After first round"="after_first_round", "Yes"="yes", "No"="no")),
+                                      selectInput("sampling", parameter_label("Sampling mode", "Known species uses species-level information; agnostic uses the hierarchy without requiring species-level interpretation."), c("Known species"="known_species", "Agnostic"="agnostic")),
+                                      checkboxInput("replacement", parameter_label("Sample with replacement", "Allow the same eligible observation to be selected more than once."), FALSE),
+                                      textAreaInput("ignore", parameter_label("Exclude clade IDs (comma / newline separated)", "Native IDs of clades to exclude from sampling; separate multiple IDs with commas or new lines."), "", rows=2),
+                                      textAreaInput("require", parameter_label("Require clade IDs (comma / newline separated)", "Native IDs of clades to require during sampling; separate multiple IDs with commas or new lines."), "", rows=2),
+                                      numericInput("seed", parameter_label("Random seed", "Seed used to make randomized sampling reproducible when inputs and software versions are unchanged."), 1, min=0, step=1),
+                                      actionButton("sample", "Run TaxonSampling"),
+                                      downloadButton("download_selected", "Download sampled taxa (.tsv)"),
+                                      downloadButton("download_result", "Download full result (.rds)")
+                             ),
+                             tabPanel("4. Visualization",
+                                      selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
+                                      numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
+                                      numericInput("bias_cutoff", parameter_label("Bias cutoff: absolute log2 fold change", "Minimum absolute log2 frequency ratio to color a group as over- or underrepresented; 1 means a twofold difference."), 1, min=0, step=0.25),
+                                      helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within cutoff. Cutoff 1 = twofold. This is an effect-size threshold, not a statistical significance test."),
+                                      checkboxInput("labels", parameter_label("Show taxon labels", "Display taxon names next to plotted points; hover over points for full details even when labels are hidden."), FALSE),
+                                      downloadButton("download_summary", "Download comparison table (.tsv)")
+                             )
+                 )
     ),
     mainPanel(width=8,
-      verbatimTextOutput("status"),
-      tabsetPanel(
-        tabPanel("Activity log",
-          p("Taxonomy download and database-building operations."),
-          tags$div(class="ts-working", role="status", `aria-live`="polite",
-            tags$span(id="ts-spinner-live", class="ts-spinner", style="display:none", `aria-hidden`="true"),
-            tags$span(id="ts-activity-live", "Idle")),
-          tags$div(style="max-height:480px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;background:#f7f9fa;border:1px solid #ddd;padding:10px;font-family:monospace;font-size:12px;",
-            tags$div(id="ts-log-live"))
-        ),
-        tabPanel("Database statistics",
-          p("Statistics describe each complete taxonomy database, not the subset of input taxa."),
-          DTOutput("database_statistics")),
-        tabPanel("Reference", DTOutput("reference_table")),
-        tabPanel("Observed nodes", DTOutput("nodes_table")),
-        tabPanel("Mappings", DTOutput("mapping_table")),
-        tabPanel("Selected taxa", DTOutput("selected_table")),
-        tabPanel("Representation",
-          h4("1. Full reference vs full input database"), plotlyOutput("comparison_reference_input", height="490px"),
-          h4("2. Full reference vs sampled dataset"), plotlyOutput("comparison_reference_sample", height="490px"),
-          h4("3. Full input database vs sampled dataset"), plotlyOutput("comparison_input_sample", height="490px"),
-          DTOutput("summary_table")),
-        tabPanel("Bias analysis",
-          h4("Original and sampled taxonomic bias"),
-          p("Bias is log2(dataset frequency / reference frequency). Positive values indicate overrepresentation. Negative values indicate underrepresentation."),
-          p("All three views use the taxonomic rank, group limit, and bias cutoff in the Visualization controls."),
-          h4("1. Ranked bias comparison"),
-          plotlyOutput("bias_ranked", height="600px"),
-          h4("2. Change in absolute bias after sampling"),
-          plotlyOutput("bias_improvement", height="560px"),
-          h4("3. Taxonomic bias heatmap"),
-          plotlyOutput("bias_heatmap", height="560px"),
-          downloadButton("download_bias", "Download bias analysis (.tsv)"),
-          tags$hr(),
-          p("Bias uses frequency ratios, not a hypothesis test. Groups with zero frequency have infinite log2 bias; a finite display cap is used for plotting, while the downloaded table retains the original values. Comparisons at 'All observed nodes' include overlapping ancestors and are not independent taxonomic partitions.")
-        ),
-        tabPanel("Diversity metrics",
-          h4("Taxonomic diversity and reference representativeness"),
-          p("Metrics use the complete set of groups at the rank selected in Visualization; the maximum plotted groups setting does not affect calculations."),
-          p("Hill q=0 measures represented groups; q=1 is the effective Shannon diversity; q=2 emphasizes dominant groups. JSD (base 2; 0–1) measures distance from the reference frequency distribution."),
-          DTOutput("diversity_metrics_table"),
-          downloadButton("download_diversity_metrics", "Download metrics (.tsv)"),
-          h4("Effective diversity (Hill q=1)"),
-          plotlyOutput("diversity_hill_plot", height="380px"),
-          h4("Divergence from the reference"),
-          plotlyOutput("diversity_jsd_plot", height="380px"),
-          verbatimTextOutput("diversity_interpretation"),
-          tags$hr(),
-          p("Interpretation: frequencies are normalized among groups present at the chosen rank, not over the entire taxonomy. Missing/unranked lineages outside that rank are excluded. 'All observed nodes' cannot be used because overlapping ancestors do not form a partition. Species-level or sparsely populated ranks may give misleading comparisons; use a shared rank with adequate coverage. Counts may represent distinct IDs or backbone nodes according to the input settings, rather than sequence records. Reference group coverage is the fraction of reference groups represented, not a sample-size-adjusted richness estimate.")
-        ),
-        tabPanel("Treemaps",
-          h4("Hierarchical taxonomic representation"),
-          p("Choose a parent rank and its nested child rank. Rectangle areas represent counts; hover to inspect taxa."),
-          fluidRow(
-            column(6, selectInput("tree_root_rank", parameter_label("Parent rank", "Top-level taxonomic groups displayed as outer rectangles."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus"), selected="phylum")),
-            column(6, selectInput("tree_child_rank", parameter_label("Nested rank", "Descendant taxonomic rank nested within each parent group. Must be lower than the parent rank."), c("Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"))
-          ),
-          p("The full reference uses the complete DuckDB backbone; input and sample use their mapped counts. Only parent-rank lineages not covered by the displayed child-rank groups appear as Other / unclassified. Child-rank groups include all their descendants."),
-          h4("1. Full reference database"), plotlyOutput("tree_reference", height="520px"),
-          h4("2. Full sequence database"), plotlyOutput("tree_input", height="520px"),
-          h4("3. Sampled sequences"), plotlyOutput("tree_sampled", height="520px")
-        ),
-        tabPanel("Run details", verbatimTextOutput("details"))
-      )
+              verbatimTextOutput("status"),
+              tabsetPanel(
+                tabPanel("Activity log",
+                         p("Taxonomy download and database-building operations."),
+                         tags$div(class="ts-working", role="status", `aria-live`="polite",
+                                  tags$span(id="ts-spinner-live", class="ts-spinner", style="display:none", `aria-hidden`="true"),
+                                  tags$span(id="ts-activity-live", "Idle")),
+                         tags$div(style="max-height:480px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;background:#f7f9fa;border:1px solid #ddd;padding:10px;font-family:monospace;font-size:12px;",
+                                  tags$div(id="ts-log-live"))
+                ),
+                tabPanel("Database statistics",
+                         p("Statistics describe each complete taxonomy database, not the subset of input taxa."),
+                         DTOutput("database_statistics"),
+                         h4("Cross-taxonomy identity mappings"),
+                         p("Mapping counts and ambiguity statistics; not phylogenetic node statistics."),
+                         DTOutput("cross_identity_statistics")),
+                tabPanel("Reference", DTOutput("reference_table")),
+                tabPanel("Observed nodes", DTOutput("nodes_table")),
+                tabPanel("Mappings", DTOutput("mapping_table")),
+                tabPanel("Selected taxa", DTOutput("selected_table")),
+                tabPanel("Representation",
+                         h4("1. Full reference vs full input database"), plotlyOutput("comparison_reference_input", height="490px"),
+                         h4("2. Full reference vs sampled dataset"), plotlyOutput("comparison_reference_sample", height="490px"),
+                         h4("3. Full input database vs sampled dataset"), plotlyOutput("comparison_input_sample", height="490px"),
+                         DTOutput("summary_table")),
+                tabPanel("Bias analysis",
+                         h4("Original and sampled taxonomic bias"),
+                         p("Bias is log2(dataset frequency / reference frequency). Positive values indicate overrepresentation. Negative values indicate underrepresentation."),
+                         p("All three views use the taxonomic rank, group limit, and bias cutoff in the Visualization controls."),
+                         h4("1. Ranked bias comparison"),
+                         plotlyOutput("bias_ranked", height="600px"),
+                         h4("2. Change in absolute bias after sampling"),
+                         plotlyOutput("bias_improvement", height="560px"),
+                         h4("3. Taxonomic bias heatmap"),
+                         plotlyOutput("bias_heatmap", height="560px"),
+                         downloadButton("download_bias", "Download bias analysis (.tsv)"),
+                         tags$hr(),
+                         p("Bias uses frequency ratios, not a hypothesis test. Groups with zero frequency have infinite log2 bias; a finite display cap is used for plotting, while the downloaded table retains the original values. Comparisons at 'All observed nodes' include overlapping ancestors and are not independent taxonomic partitions.")
+                ),
+                tabPanel("Diversity metrics",
+                         h4("Taxonomic diversity and reference representativeness"),
+                         p("Metrics use the complete set of groups at the rank selected in Visualization; the maximum plotted groups setting does not affect calculations."),
+                         p("Hill q=0 measures represented groups; q=1 is the effective Shannon diversity; q=2 emphasizes dominant groups. JSD (base 2; 0–1) measures distance from the reference frequency distribution."),
+                         DTOutput("diversity_metrics_table"),
+                         downloadButton("download_diversity_metrics", "Download metrics (.tsv)"),
+                         h4("Effective diversity (Hill q=1)"),
+                         plotlyOutput("diversity_hill_plot", height="380px"),
+                         h4("Divergence from the reference"),
+                         plotlyOutput("diversity_jsd_plot", height="380px"),
+                         verbatimTextOutput("diversity_interpretation"),
+                         tags$hr(),
+                         p("Interpretation: frequencies are normalized among groups present at the chosen rank, not over the entire taxonomy. Missing/unranked lineages outside that rank are excluded. 'All observed nodes' cannot be used because overlapping ancestors do not form a partition. Species-level or sparsely populated ranks may give misleading comparisons; use a shared rank with adequate coverage. Counts may represent distinct IDs or backbone nodes according to the input settings, rather than sequence records. Reference group coverage is the fraction of reference groups represented, not a sample-size-adjusted richness estimate.")
+                ),
+                tabPanel("Treemaps",
+                         h4("Hierarchical taxonomic representation"),
+                         p("Choose a parent rank and its nested child rank. Rectangle areas represent counts; hover to inspect taxa."),
+                         fluidRow(
+                           column(6, selectInput("tree_root_rank", parameter_label("Parent rank", "Top-level taxonomic groups displayed as outer rectangles."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus"), selected="phylum")),
+                           column(6, selectInput("tree_child_rank", parameter_label("Nested rank", "Descendant taxonomic rank nested within each parent group. Must be lower than the parent rank."), c("Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"))
+                         ),
+                         p("The full reference uses the complete DuckDB backbone; input and sample use their mapped counts. Only parent-rank lineages not covered by the displayed child-rank groups appear as Other / unclassified. Child-rank groups include all their descendants."),
+                         h4("1. Full reference database"), plotlyOutput("tree_reference", height="520px"),
+                         h4("2. Full sequence database"), plotlyOutput("tree_input", height="520px"),
+                         h4("3. Sampled sequences"), plotlyOutput("tree_sampled", height="520px")
+                ),
+                tabPanel("Run details", verbatimTextOutput("details"))
+              )
     )
   )
 )
@@ -249,7 +252,7 @@ server <- function(input, output, session) {
     workspace <- trimws(input$setup_dir)
     validate(need(nzchar(workspace), "Specify a taxonomy workspace."))
     db_dir <- file.path(workspace, "taxonomy_db")
-    types <- c("ncbi", "ott", "synthetic", "cross_identity")
+    types <- c("ncbi", "ott", "synthetic")
     do.call(rbind, lapply(types, function(type) {
       path <- file.path(db_dir, paste0(type, ".duckdb"))
       row <- data.frame(database=type, status=if (file.exists(path)) "Available" else "Missing",
@@ -282,15 +285,13 @@ server <- function(input, output, session) {
           row$maximum_depth <- as.numeric(vals$maximum_depth[[1L]])
           if (!is.na(row$root_id) && nzchar(row$root_id)) {
             roots <- DBI::dbGetQuery(con,
-              "SELECT species_count, tip_count FROM nodes WHERE id = ? LIMIT 1",
-              params=list(row$root_id))
+                                     "SELECT species_count, tip_count FROM nodes WHERE id = ? LIMIT 1",
+                                     params=list(row$root_id))
             if (nrow(roots)) {
               row$species_at_root <- as.numeric(roots$species_count[[1L]])
               row$tips_at_root <- as.numeric(roots$tip_count[[1L]])
             }
           }
-        } else if (type == "cross_identity") {
-          row$status <- "Available (identity mapping)"
         }
         row
       }, error=function(e) { row$status <- paste("Inspection error:", conditionMessage(e)); row })
@@ -299,6 +300,58 @@ server <- function(input, output, session) {
   output$database_statistics <- renderDT({
     DT::datatable(db_stats(), rownames=FALSE,
                   options=list(pageLength=4, scrollX=TRUE, dom="tip"))
+  })
+  cross_identity_stats <- reactive({
+    db_stats_version()
+    workspace <- trimws(input$setup_dir)
+    validate(need(nzchar(workspace), "Specify a taxonomy workspace."))
+    path <- file.path(workspace, "taxonomy_db", "cross_identity.duckdb")
+    metric <- c("Database status", "File size (MB)", "Build date",
+                "NCBI → OTT links", "OTT → Synthetic links",
+                "Unique direct links", "Ambiguous direct links",
+                "NCBI → Synthetic paths", "Unique transitive paths",
+                "Ambiguous transitive paths")
+    value <- rep(NA_character_, length(metric))
+    value[1L] <- if (file.exists(path)) "Available" else "Missing"
+    if (!file.exists(path)) return(data.frame(metric, value))
+    value[2L] <- as.character(round(as.numeric(file.info(path)$size) / 1024^2, 2))
+    tryCatch({
+      con <- DBI::dbConnect(duckdb::duckdb(), dbdir=path, read_only=TRUE)
+      on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
+      tables <- DBI::dbListTables(con)
+      if ("metadata" %in% tables) {
+        meta <- DBI::dbGetQuery(con, "SELECT key, value FROM metadata")
+        date <- meta$value[meta$key == "build_date"]
+        if (length(date)) value[3L] <- as.character(date[[1L]])
+      }
+      if ("identity_links_status" %in% tables) {
+        counts <- DBI::dbGetQuery(con, paste(
+          "SELECT",
+          "COUNT(*) FILTER (WHERE source_a='ncbi' AND source_b='ott') AS ncbi_ott,",
+          "COUNT(*) FILTER (WHERE source_a='ott' AND source_b='synthetic') AS ott_synthetic,",
+          "COUNT(*) FILTER (WHERE mapping_status='unique') AS unique_links,",
+          "COUNT(*) FILTER (WHERE mapping_status='ambiguous') AS ambiguous_links",
+          "FROM identity_links_status"))
+        value[4:7] <- as.character(unlist(counts[1L, ], use.names=FALSE))
+      }
+      if ("transitive_links" %in% tables) {
+        counts <- DBI::dbGetQuery(con, paste(
+          "SELECT COUNT(*) AS paths,",
+          "COUNT(*) FILTER (WHERE mapping_status='unique_path') AS unique_paths,",
+          "COUNT(*) FILTER (WHERE mapping_status='ambiguous_path') AS ambiguous_paths",
+          "FROM transitive_links"))
+        value[8:10] <- as.character(unlist(counts[1L, ], use.names=FALSE))
+      }
+      data.frame(metric, value)
+    }, error=function(e) {
+      value[1L] <- paste("Inspection error:", conditionMessage(e))
+      data.frame(metric, value)
+    })
+  })
+  output$cross_identity_statistics <- renderDT({
+    DT::datatable(cross_identity_stats(), rownames=FALSE,
+                  colnames=c("Statistic", "Value"),
+                  options=list(dom="t", paging=FALSE, ordering=FALSE))
   })
   observeEvent(input$refresh_db_stats, {
     db_stats_version(db_stats_version() + 1L)
@@ -505,34 +558,34 @@ server <- function(input, output, session) {
   diversity_metrics_data <- reactive({
     req(state$result)
     validate(need(input$level != "all",
-      "Choose a specific taxonomic rank in Visualization. Overlapping ancestral nodes cannot be used for diversity metrics."))
+                  "Choose a specific taxonomic rank in Visualization. Overlapping ancestral nodes cannot be used for diversity metrics."))
     d <- filtered_comparison()
     validate(need(nrow(d) > 0, "No groups at this taxonomic rank."))
     validate(need(all(colSums(d[, c("background", "input", "sampled")]) > 0),
-      "All three datasets must have positive counts at the selected rank."))
+                  "All three datasets must have positive counts at the selected rank."))
     ts_diversity_metrics(d, input$level)
   })
   output$diversity_metrics_table <- renderDT({
     datatable(diversity_metrics_data(), rownames=FALSE,
-      options=list(dom='t', scrollX=TRUE),
-      caption="Diversity and divergence, calculated on the full selected-rank distribution")
+              options=list(dom='t', scrollX=TRUE),
+              caption="Diversity and divergence, calculated on the full selected-rank distribution")
   })
   output$diversity_hill_plot <- plotly::renderPlotly({
     d <- diversity_metrics_data()
     plotly::plot_ly(d, x=~dataset, y=~hill_q1, type='bar',
-      marker=list(color=c('#636EFA','#EF553B','#00CC96')),
-      text=~paste0('Dataset: ',dataset,'<br>Hill q=0: ',signif(hill_q0,5),
-                   '<br>Hill q=1: ',signif(hill_q1,5),
-                   '<br>Hill q=2: ',signif(hill_q2,5)), hoverinfo='text') |>
+                    marker=list(color=c('#636EFA','#EF553B','#00CC96')),
+                    text=~paste0('Dataset: ',dataset,'<br>Hill q=0: ',signif(hill_q0,5),
+                                 '<br>Hill q=1: ',signif(hill_q1,5),
+                                 '<br>Hill q=2: ',signif(hill_q2,5)), hoverinfo='text') |>
       plotly::layout(yaxis=list(title='Effective number of taxonomic groups'),
                      xaxis=list(title=''), showlegend=FALSE)
   })
   output$diversity_jsd_plot <- plotly::renderPlotly({
     d <- diversity_metrics_data()
     plotly::plot_ly(d, x=~dataset, y=~jsd_vs_reference, type='bar',
-      marker=list(color=c('#636EFA','#EF553B','#00CC96')),
-      text=~paste0('JSD versus reference: ',signif(jsd_vs_reference,5)),
-      hoverinfo='text') |>
+                    marker=list(color=c('#636EFA','#EF553B','#00CC96')),
+                    text=~paste0('JSD versus reference: ',signif(jsd_vs_reference,5)),
+                    hoverinfo='text') |>
       plotly::layout(yaxis=list(title='Jensen–Shannon divergence (bits)', range=c(0,1)),
                      xaxis=list(title=''), showlegend=FALSE)
   })
@@ -546,7 +599,7 @@ server <- function(input, output, session) {
   output$download_diversity_metrics <- downloadHandler(
     filename=function() paste0('taxonsampling_diversity_', input$level, '.tsv'),
     content=function(file) write.table(diversity_metrics_data(), file, sep='\t',
-                                      quote=FALSE, row.names=FALSE, na='NA')
+                                       quote=FALSE, row.names=FALSE, na='NA')
   )
 
   # Each plot uses its own reference (X) and comparison (Y) distribution.
@@ -568,10 +621,10 @@ server <- function(input, output, session) {
     offset <- if (length(positive)) min(positive) / 10 else 1e-12
     offset <- max(offset, .Machine$double.xmin)
     log_ratio <- ifelse(fx == 0 & fy == 0, 0,
-                 ifelse(fx == 0, Inf, ifelse(fy == 0, -Inf, log2(fy / fx))))
+                        ifelse(fx == 0, Inf, ifelse(fy == 0, -Inf, log2(fy / fx))))
     cutoff <- input$bias_cutoff
     status <- ifelse(log_ratio > cutoff, "Overrepresented",
-              ifelse(log_ratio < -cutoff, "Underrepresented", "Within cutoff"))
+                     ifelse(log_ratio < -cutoff, "Underrepresented", "Within cutoff"))
     status[fx == 0 & fy == 0] <- "Absent in both"
     status[status == "Absent in both"] <- "Within cutoff"
     d$classification <- factor(status, levels=c("Overrepresented", "Underrepresented", "Within cutoff"))
@@ -624,7 +677,7 @@ server <- function(input, output, session) {
     d <- filtered_comparison()
     validate(need(nrow(d) > 0, "No taxonomic groups available at this rank."))
     validate(need(sum(d$background_freq) > 0 && sum(d$input_freq) > 0 &&
-                  sum(d$sampled_freq) > 0,
+                    sum(d$sampled_freq) > 0,
                   "Reference, input, and sampled data must all have observations at this rank."))
     ratio <- function(y, x) {
       out <- rep(NA_real_, length(x))
@@ -642,11 +695,11 @@ server <- function(input, output, session) {
     d$bias_improvement <- abs(d$original_log2_bias) - abs(d$sampled_log2_bias)
     d$bias_improvement[!is.finite(d$bias_improvement)] <- NA_real_
     d$original_status <- ifelse(is.na(d$original_log2_bias), "Undefined",
-                           ifelse(d$original_log2_bias > input$bias_cutoff, "Overrepresented",
-                           ifelse(d$original_log2_bias < -input$bias_cutoff, "Underrepresented", "Within cutoff")))
+                                ifelse(d$original_log2_bias > input$bias_cutoff, "Overrepresented",
+                                       ifelse(d$original_log2_bias < -input$bias_cutoff, "Underrepresented", "Within cutoff")))
     d$sampled_status <- ifelse(is.na(d$sampled_log2_bias), "Undefined",
-                           ifelse(d$sampled_log2_bias > input$bias_cutoff, "Overrepresented",
-                           ifelse(d$sampled_log2_bias < -input$bias_cutoff, "Underrepresented", "Within cutoff")))
+                               ifelse(d$sampled_log2_bias > input$bias_cutoff, "Overrepresented",
+                                      ifelse(d$sampled_log2_bias < -input$bias_cutoff, "Underrepresented", "Within cutoff")))
     d
   })
 
@@ -750,7 +803,7 @@ server <- function(input, output, session) {
   output$download_bias <- downloadHandler(
     filename=function() paste0("TaxonSampling_bias_",Sys.Date(),".tsv"),
     content=function(file) utils::write.table(bias_analysis(),file,sep="\t",
-                                               row.names=FALSE,quote=TRUE,na="NA")
+                                              row.names=FALSE,quote=TRUE,na="NA")
   )
 
   # Retrieve parent/child rank relationships from the complete reference backbone.
@@ -801,7 +854,7 @@ server <- function(input, output, session) {
     LEFT JOIN nodes p ON p.id = np.root_id
     LEFT JOIN nearest_same_rank e ON e.child_id = c.id AND e.rn = 1
     WHERE lower(trim(c.rank)) = '%s'",
-      child_rank, root_rank, child_rank, child_rank)
+                   child_rank, root_rank, child_rank, child_rank)
     mapped <- DBI::dbGetQuery(con, sql)
     if (anyDuplicated(as.character(mapped$child_id))) {
       stop('Treemap: duplicate child mapping; inspect ancestry query.')
@@ -836,7 +889,7 @@ server <- function(input, output, session) {
     parent_rank <- input$tree_root_rank
     child_rank <- input$tree_child_rank
     validate(need(parent_rank %in% ranks && child_rank %in% ranks &&
-                  match(child_rank,ranks) > match(parent_rank,ranks),
+                    match(child_rank,ranks) > match(parent_rank,ranks),
                   'Select a nested rank below the parent rank.'))
 
     # One row per sequence; repeated taxon IDs must remain repeated.
@@ -912,7 +965,7 @@ server <- function(input, output, session) {
       ancestor_root <- as.character(children$root_id[ancestor_index])
       valid_enclosing <- nzchar(enclosing) & enclosing %in% child_ids &
         ((is.na(assigned_root) & is.na(ancestor_root)) |
-         (!is.na(assigned_root) & !is.na(ancestor_root) & assigned_root == ancestor_root))
+           (!is.na(assigned_root) & !is.na(ancestor_root) & assigned_root == ancestor_root))
       child_parent <- ifelse(valid_enclosing, paste0('child:',enclosing),
                              ifelse(is.na(assigned_root), 'root:unassigned',
                                     paste0('root:',assigned_root)))
@@ -931,7 +984,7 @@ server <- function(input, output, session) {
       # For unassigned taxa, derive the synthetic root from the sum of
       # top-level (non-nested) child totals; never invent a phylum assignment.
       unassigned_total <- sum(cv[active_child][is.na(assigned_root) &
-        child_parent == 'root:unassigned'],na.rm=TRUE)
+                                                 child_parent == 'root:unassigned'],na.rm=TRUE)
       values <- c(rv[active_root],if (has_unassigned) unassigned_total,
                   cv[active_child])
       parents <- c(rep('',length(active_root)),if (has_unassigned) '',child_parent)
@@ -944,10 +997,10 @@ server <- function(input, output, session) {
       node_values <- setNames(values,ids)
       excess <- child_sums - node_values[names(child_sums)]
       bad <- names(excess)[!is.finite(excess) |
-        excess > 1e-8*pmax(1,node_values[names(excess)])]
+                             excess > 1e-8*pmax(1,node_values[names(excess)])]
       if (length(bad)) {
         detail <- paste(head(sprintf('%s: children=%g, parent=%g',
-                         bad,child_sums[bad],node_values[bad]),8),collapse='; ')
+                                     bad,child_sums[bad],node_values[bad]),8),collapse='; ')
         stop(sprintf('Treemap (%s): overlapping or inconsistent counts: %s',kind,detail))
       }
       # Only selected parent-rank nodes receive an explicit residual.
