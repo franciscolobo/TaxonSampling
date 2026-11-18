@@ -6,11 +6,7 @@ launch_app <- function(...) {
     stop("Please install the 'shiny' package.")
   }
 
-  app_dir <- system.file(
-    "shiny",
-    "TaxonSampling",
-    package = "TaxonSampling"
-  )
+  app_dir <- system.file("shiny", package = "TaxonSampling")
 
   if (!nzchar(app_dir)) {
     stop("TaxonSampling Shiny application not found.")
