@@ -230,7 +230,7 @@ ui <- fluidPage(
                                      tabPanel("Treemaps",
                                               h4("Hierarchical taxonomic representation"),
                                               p("Choose a parent rank and its nested child rank. Rectangle areas represent counts; hover to inspect taxa."),
-                                              p("Treemaps currently show the complete reference backbone and are independent of the taxonomic scope selected under Representation."),
+                                              p("Treemaps use the taxonomic scope selected under Representation: either the complete reference or the sampling root and its descendants. Choose parent and nested ranks present within that scope."),
                                               fluidRow(
                                                 column(6, selectInput("tree_root_rank", parameter_label("Parent rank", "Top-level taxonomic groups displayed as outer rectangles."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus"), selected="phylum")),
                                                 column(6, selectInput("tree_child_rank", parameter_label("Nested rank", "Descendant taxonomic rank nested within each parent group. Must be lower than the parent rank."), c("Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"))
@@ -971,10 +971,21 @@ server <- function(input, output, session) {
                   "Nested rank must be below the parent rank."))
     con <- DBI::dbConnect(duckdb::duckdb(), dbdir=state$db, read_only=FALSE)
     on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
+    scoped <- identical(input$comparison_scope, 'root')
+    if (scoped) req(state$result, state$sampled_root)
+    # Filter displayed taxonomic groups to the sampled subtree, while
+    # retaining complete ancestry for correct parent-rank relationships.
+    subtree_cte <- if (scoped) paste0(
+      "WITH RECURSIVE ts_scope AS (",
+      " SELECT id FROM nodes WHERE id = ", DBI::dbQuoteString(con, state$sampled_root),
+      " UNION ALL SELECT n.id FROM nodes n JOIN ts_scope s ON n.parent = s.id",
+      " WHERE n.id <> s.id), ") else "WITH RECURSIVE "
+    scope_filter <- if (scoped) " AND c.id IN (SELECT id FROM ts_scope)" else ""
+    root_filter <- if (scoped) paste0(" AND id IN (SELECT id FROM ts_scope)") else ""
     # Do not stop recursion at a rank match: the independent diagnostic
     # established that doing so missed valid class-to-phylum relationships.
     # Traverse the complete ancestry, then select the closest matching parent.
-    sql <- sprintf("WITH RECURSIVE ancestry AS (
+    sql <- sprintf("%s ancestry AS (
       SELECT id AS child_id, id AS ancestor_id, parent AS next_parent,
              lower(trim(rank)) AS ancestor_rank, 0 AS depth
       FROM nodes WHERE lower(trim(rank)) = '%s'
@@ -1006,8 +1017,8 @@ server <- function(input, output, session) {
     LEFT JOIN nearest_parent np ON np.child_id = c.id AND np.rn = 1
     LEFT JOIN nodes p ON p.id = np.root_id
     LEFT JOIN nearest_same_rank e ON e.child_id = c.id AND e.rn = 1
-    WHERE lower(trim(c.rank)) = '%s'",
-                   child_rank, root_rank, child_rank, child_rank)
+    WHERE lower(trim(c.rank)) = '%s' %s",
+                   subtree_cte, child_rank, root_rank, child_rank, child_rank, scope_filter)
     mapped <- DBI::dbGetQuery(con, sql)
     if (anyDuplicated(as.character(mapped$child_id))) {
       stop('Treemap: duplicate child mapping; inspect ancestry query.')
@@ -1020,13 +1031,14 @@ server <- function(input, output, session) {
             '; total ', nrow(mapped), '.')
     # Explicit regression check for the synthetic phylum -> class case.
     # It is diagnostic, not a hard-coded assumption for other databases.
-    if (root_rank == 'phylum' && child_rank == 'class' && nrow(mapped) == 249L &&
+    if (!scoped && root_rank == 'phylum' && child_rank == 'class' && nrow(mapped) == 249L &&
         (mapped_count != 184L || unassigned_count != 65L)) {
       warning(sprintf('Synthetic treemap regression: expected 184 mapped / 65 unassigned classes; got %d / %d.',
                       mapped_count, unassigned_count))
     }
     roots <- DBI::dbGetQuery(con, sprintf(
-      "SELECT id AS root_id, name AS root_name, species_count AS root_species, tip_count AS root_tips FROM nodes WHERE lower(trim(rank)) = '%s'", root_rank))
+      "%s SELECT id AS root_id, name AS root_name, species_count AS root_species, tip_count AS root_tips FROM nodes WHERE lower(trim(rank)) = '%s' %s",
+      if (scoped) substr(subtree_cte, 1L, nchar(subtree_cte) - 2L) else "", root_rank, root_filter))
     list(roots=roots, children=mapped)
   })
 
@@ -1058,6 +1070,19 @@ server <- function(input, output, session) {
     entries <- as.data.frame(table(entries$node_id, entries$dataset), stringsAsFactors=FALSE)
     names(entries) <- c('node_id','dataset','n')
     entries <- entries[entries$n > 0, , drop=FALSE]
+    # In clade mode, exclude observations outside the sampling root before
+    # propagating counts. This prevents outside input taxa from contributing
+    # to the root or its displayed descendants.
+    if (identical(input$comparison_scope, 'root')) {
+      req(state$result, state$sampled_root)
+      scoped_ids <- DBI::dbGetQuery(con, paste0(
+        "WITH RECURSIVE subtree AS (",
+        " SELECT id FROM nodes WHERE id = ?",
+        " UNION ALL SELECT n.id FROM nodes n JOIN subtree s ON n.parent = s.id",
+        " WHERE n.id <> s.id)",
+        " SELECT id FROM subtree"), params=list(state$sampled_root))$id
+      entries <- entries[as.character(entries$node_id) %in% as.character(scoped_ids), , drop=FALSE]
+    }
     entries$node_id <- as.character(entries$node_id)
     entries$dataset <- as.character(entries$dataset)
     entries$n <- as.numeric(entries$n)
