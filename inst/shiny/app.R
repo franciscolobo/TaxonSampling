@@ -78,7 +78,7 @@ ui <- fluidPage(
         }
       ")),
             tags$script(HTML("Shiny.addCustomMessageHandler('ts_setup_progress',function(x){var a=document.getElementById('ts-activity-live');var l=document.getElementById('ts-log-live');if(a){a.textContent=x.text;if(x.busy!==undefined){var sp=document.getElementById('ts-spinner-live');if(sp)sp.style.display=x.busy?'inline-block':'none';}}if(l&&x.append){var line=document.createElement('div');line.textContent=x.append;l.appendChild(line);l.scrollTop=l.scrollHeight;}});")),
-            tags$style(HTML(".ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
+            tags$style(HTML(".ts-analysis-settings{border:1px solid #d5dfe5;border-radius:6px;margin-bottom:14px;background:#f8fafb}.ts-analysis-settings>summary{padding:11px 13px;cursor:pointer}.ts-analysis-settings[open]>summary{border-bottom:1px solid #d5dfe5}.ts-working{display:flex;align-items:center;gap:9px;margin:8px 0;font-weight:600}.ts-spinner{display:inline-block;width:19px;height:19px;border:3px solid #d5e1e9;border-top-color:#2376a5;border-radius:50%;animation:ts-spin .7s linear infinite}@keyframes ts-spin{to{transform:rotate(360deg)}}"))),
   sidebarLayout(
     sidebarPanel(width = 4,
                  tags$img(src = "TS_logo.png", style = "max-width:180px;max-height:100px;"),
@@ -179,19 +179,21 @@ ui <- fluidPage(
                                               DTOutput("mapping_table"))
                          )
                 ),
-                tabPanel("Sampling analysis",
-                         tabsetPanel(id = "sampling_analysis_tabs",
+                tabPanel("Sampling results",
+                         tabsetPanel(id="sampling_results_tabs",
                                      tabPanel("Run details", verbatimTextOutput("details")),
-                                     tabPanel("Selected taxa", DTOutput("selected_table")),
+                                     tabPanel("Selected taxa", DTOutput("selected_table"))
+                         )
+                ),
+                tabPanel("Analysis",
+                         tabsetPanel(id="sampling_analysis_tabs",
                                      tabPanel("Representation",
-                                              h4("Representation controls"),
-                                              radioButtons("comparison_scope", parameter_label("Taxonomic scope", "Whole taxonomy compares the original dataset with the complete reference. Sampling clade recalculates distributions using only the root clade used for the most recent sampling run."), choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
-                                              textOutput("scope_description"),
-                                              p("These settings also affect Bias analysis and Diversity metrics where applicable."),
-                                              selectInput("level", parameter_label("Taxonomic rank", "Taxonomic rank used to aggregate and compare frequencies; All observed nodes includes overlapping ancestral groups."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all")),
-                                              numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Maximum number of taxa shown in each comparison, ranked by input abundance. Set to zero to plot all groups."), 40, min=0, max=100000),
-                                              numericInput("bias_cutoff", parameter_label("Bias cutoff: absolute log2 fold change", "Minimum absolute log2 frequency ratio to color a group as over- or underrepresented; 1 means a twofold difference."), 1, min=0, step=0.25),
-                                              helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within cutoff. Cutoff 1 = twofold. This is an effect-size threshold, not a statistical significance test."),
+                                              h4("View settings"),
+                                              radioButtons("representation_scope", "Taxonomic scope", choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
+                                              selectInput("representation_rank", "Taxonomic rank", c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all"), selected="class"),
+                                              numericInput("representation_cutoff", "Bias cutoff (absolute log2 fold change)", 1, min=0, step=0.25),
+                                              numericInput("top_n", parameter_label("Maximum plotted groups (0 = all)", "Limits only representation scatterplots; ranked by input abundance."), 40, min=0, max=100000),
+                                              helpText("Orange = overrepresented (Y versus X); blue = underrepresented; grey = within the cutoff selected here."),
                                               checkboxInput("labels", parameter_label("Show taxon labels", "Display taxon names next to plotted points; hover over points for full details even when labels are hidden."), FALSE),
                                               downloadButton("download_summary", "Download comparison table (.tsv)"),
                                               tags$hr(),
@@ -201,8 +203,12 @@ ui <- fluidPage(
                                               DTOutput("summary_table")),
                                      tabPanel("Bias analysis",
                                               h4("Original and sampled taxonomic bias"),
+                                              h4("View settings"),
+                                              radioButtons("bias_scope", "Taxonomic scope", choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
+                                              selectInput("bias_rank", "Taxonomic rank", c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species", "All observed nodes"="all"), selected="class"),
+                                              numericInput("bias_cutoff", "Bias cutoff (absolute log2 fold change)", 1, min=0, step=0.25),
                                               p("Bias is log2(dataset frequency / reference frequency). Positive values indicate overrepresentation. Negative values indicate underrepresentation."),
-                                              p("All three views use the taxonomic rank, group limit, and bias cutoff in Sampling analysis / Representation."),
+                                              numericInput("bias_top_n", parameter_label("Maximum plotted groups (0 = all)", "Limits bias plots only; does not change calculations or exports."), 40, min=0, max=100000),
                                               h4("1. Ranked bias comparison"),
                                               plotlyOutput("bias_ranked", height="600px"),
                                               h4("2. Change in absolute bias after sampling"),
@@ -215,7 +221,11 @@ ui <- fluidPage(
                                      ),
                                      tabPanel("Diversity metrics",
                                               h4("Taxonomic diversity and reference representativeness"),
-                                              p("Metrics use the complete set of groups at the rank selected in Sampling analysis / Representation; the maximum plotted groups setting does not affect calculations."),
+                                              h4("View settings"),
+                                              radioButtons("diversity_scope", "Taxonomic scope", choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
+                                              selectInput("diversity_rank", "Taxonomic rank", c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"),
+
+                                              p("Metrics use the complete set of groups at the rank selected here; the maximum plotted groups setting does not affect calculations."),
                                               p("Hill q=0 measures represented groups; q=1 is the effective Shannon diversity; q=2 emphasizes dominant groups. JSD (base 2; 0–1) measures distance from the reference frequency distribution."),
                                               DTOutput("diversity_metrics_table"),
                                               downloadButton("download_diversity_metrics", "Download metrics (.tsv)"),
@@ -229,8 +239,11 @@ ui <- fluidPage(
                                      ),
                                      tabPanel("Treemaps",
                                               h4("Hierarchical taxonomic representation"),
+                                              h4("View settings"),
+                                              radioButtons("treemap_scope", "Taxonomic scope", choices=c("Whole taxonomy"="whole", "Sampling clade"="root"), selected="whole", inline=TRUE),
+
                                               p("Choose a parent rank and its nested child rank. Rectangle areas represent counts; hover to inspect taxa."),
-                                              p("Treemaps use the taxonomic scope selected under Representation: either the complete reference or the sampling root and its descendants. Choose parent and nested ranks present within that scope."),
+                                              p("Choose the complete reference or the sampling clade. Parent and nested ranks must exist within the selected scope."),
                                               fluidRow(
                                                 column(6, selectInput("tree_root_rank", parameter_label("Parent rank", "Top-level taxonomic groups displayed as outer rectangles."), c("Phylum"="phylum", "Class"="class", "Order"="order", "Family"="family", "Genus"="genus"), selected="phylum")),
                                                 column(6, selectInput("tree_child_rank", parameter_label("Nested rank", "Descendant taxonomic rank nested within each parent group. Must be lower than the parent rank."), c("Class"="class", "Order"="order", "Family"="family", "Genus"="genus", "Species"="species"), selected="class"))
@@ -644,9 +657,8 @@ server <- function(input, output, session) {
   # Use the root captured at sampling time, not a potentially edited input field.
   # Fetch ALL reference nodes at the selected rank within the sampled subtree,
   # including taxa with no input observations (zero observed/sampled counts).
-  scoped_comparison <- reactive({
+  scoped_comparison <- function(rank) {
     req(state$result, state$sampled_root, state$db)
-    rank <- input$level
     validate(need(rank != "all", "Select a specific rank for sampling-clade comparisons."))
     con <- DBI::dbConnect(duckdb::duckdb(), dbdir=state$db, read_only=TRUE)
     on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
@@ -676,20 +688,12 @@ server <- function(input, output, session) {
                rank=as.character(ref$rank), background=as.numeric(background),
                input=value_or_zero(observed$input[idx]),
                sampled=value_or_zero(observed$sampled[idx]), stringsAsFactors=FALSE)
-  })
+  }
 
-  output$scope_description <- renderText({
-    if (!identical(input$comparison_scope, "root"))
-      return("Global view: reference and observed frequencies use the selected rank across the complete taxonomy.")
-    if (is.null(state$result) || is.null(state$sampled_root))
-      return("Run sampling first to enable a sampling-clade comparison.")
-    paste("Sampling-clade view: frequencies are normalized within the sampled root:", state$sampled_root)
-  })
-
-  filtered_comparison <- reactive({
-    d <- if (identical(input$comparison_scope, "root")) scoped_comparison() else comparison_data()
-    if (input$level != "all") {
-      d <- d[!is.na(d$rank) & tolower(d$rank) == input$level, , drop=FALSE]
+  filtered_comparison <- function(scope, rank) {
+    d <- if (identical(scope, "root")) scoped_comparison(rank) else comparison_data()
+    if (rank != "all") {
+      d <- d[!is.na(d$rank) & tolower(d$rank) == rank, , drop=FALSE]
     }
     d <- d[is.finite(d$background) & d$background >= 0 &
              is.finite(d$input) & d$input >= 0 &
@@ -702,21 +706,25 @@ server <- function(input, output, session) {
       d[[paste0(nm, "_freq")]] <- if (totals[[nm]] > 0) d[[nm]] / totals[[nm]] else 0
     }
     d[order(d$input, decreasing=TRUE), , drop=FALSE]
-  })
+  }
+  representation_comparison <- reactive(filtered_comparison(input$representation_scope, input$representation_rank))
+  bias_comparison <- reactive(filtered_comparison(input$bias_scope, input$bias_rank))
+  diversity_comparison <- reactive(filtered_comparison(input$diversity_scope, input$diversity_rank))
+
   output$summary_table <- renderDT({
-    d <- filtered_comparison()
+    d <- representation_comparison()
     datatable(d, options=list(pageLength=12, scrollX=TRUE), filter="top")
   })
 
   diversity_metrics_data <- reactive({
     req(state$result)
-    validate(need(input$level != "all",
-                  "Choose a specific taxonomic rank in Sampling analysis / Representation. Overlapping ancestral nodes cannot be used for diversity metrics."))
-    d <- filtered_comparison()
+    validate(need(input$diversity_rank != "all",
+                  "Choose a specific taxonomic rank in Diversity metrics. Overlapping ancestral nodes cannot be used for diversity metrics."))
+    d <- diversity_comparison()
     validate(need(nrow(d) > 0, "No groups at this taxonomic rank."))
     validate(need(all(colSums(d[, c("background", "input", "sampled")]) > 0),
                   "All three datasets must have positive counts at the selected rank."))
-    ts_diversity_metrics(d, input$level)
+    ts_diversity_metrics(d, input$diversity_rank)
   })
   output$diversity_metrics_table <- renderDT({
     datatable(diversity_metrics_data(), rownames=FALSE,
@@ -750,7 +758,7 @@ server <- function(input, output, session) {
     else sprintf('Relative JSD reduction after sampling: %.2f%% (positive indicates closer agreement with the reference).', reduction)
   })
   output$download_diversity_metrics <- downloadHandler(
-    filename=function() paste0('taxonsampling_diversity_', input$level, '.tsv'),
+    filename=function() paste0('taxonsampling_diversity_', input$diversity_rank, '.tsv'),
     content=function(file) write.table(diversity_metrics_data(), file, sep='\t',
                                        quote=FALSE, row.names=FALSE, na='NA')
   )
@@ -759,7 +767,7 @@ server <- function(input, output, session) {
   # The offset is for rendering zeros only; bias classification uses raw
   # frequencies, so zeros are correctly treated as complete absence.
   make_comparison <- function(x_key, y_key, x_title, y_title) {
-    d <- filtered_comparison()
+    d <- representation_comparison()
     validate(need(nrow(d) > 0, "No taxa at this rank. Select another rank."))
     validate(need(sum(d[[x_key]]) > 0 && sum(d[[y_key]]) > 0,
                   "Both datasets must contain observations at this rank. Run sampling first for sampled comparisons."))
@@ -775,7 +783,7 @@ server <- function(input, output, session) {
     offset <- max(offset, .Machine$double.xmin)
     log_ratio <- ifelse(fx == 0 & fy == 0, 0,
                         ifelse(fx == 0, Inf, ifelse(fy == 0, -Inf, log2(fy / fx))))
-    cutoff <- input$bias_cutoff
+    cutoff <- input$representation_cutoff
     status <- ifelse(log_ratio > cutoff, "Overrepresented",
                      ifelse(log_ratio < -cutoff, "Underrepresented", "Within cutoff"))
     status[fx == 0 & fy == 0] <- "Absent in both"
@@ -827,7 +835,7 @@ server <- function(input, output, session) {
   # Non-finite ratios are retained in the export, and capped ONLY for rendering.
   bias_analysis <- reactive({
     req(state$result)
-    d <- filtered_comparison()
+    d <- bias_comparison()
     validate(need(nrow(d) > 0, "No taxonomic groups available at this rank."))
     validate(need(sum(d$background_freq) > 0 && sum(d$input_freq) > 0 &&
                     sum(d$sampled_freq) > 0,
@@ -858,7 +866,7 @@ server <- function(input, output, session) {
 
   bias_display <- reactive({
     d <- bias_analysis()
-    nmax <- input$top_n
+    nmax <- input$bias_top_n
     if (!is.null(nmax) && nmax > 0 && nrow(d) > nmax)
       d <- head(d, nmax)
     validate(need(nrow(d) > 0, "No groups to display."))
@@ -971,7 +979,7 @@ server <- function(input, output, session) {
                   "Nested rank must be below the parent rank."))
     con <- DBI::dbConnect(duckdb::duckdb(), dbdir=state$db, read_only=FALSE)
     on.exit(DBI::dbDisconnect(con, shutdown=TRUE), add=TRUE)
-    scoped <- identical(input$comparison_scope, 'root')
+    scoped <- identical(input$treemap_scope, 'root')
     if (scoped) req(state$result, state$sampled_root)
     # Filter displayed taxonomic groups to the sampled subtree, while
     # retaining complete ancestry for correct parent-rank relationships.
@@ -1073,7 +1081,7 @@ server <- function(input, output, session) {
     # In clade mode, exclude observations outside the sampling root before
     # propagating counts. This prevents outside input taxa from contributing
     # to the root or its displayed descendants.
-    if (identical(input$comparison_scope, 'root')) {
+    if (identical(input$treemap_scope, 'root')) {
       req(state$result, state$sampled_root)
       scoped_ids <- DBI::dbGetQuery(con, paste0(
         "WITH RECURSIVE subtree AS (",
@@ -1242,7 +1250,7 @@ server <- function(input, output, session) {
   output$download_counts <- downloadHandler(filename=function() "taxonsampling_counts.rds", content=function(file) {req(state$counts); saveRDS(state$counts, file)})
   output$download_result <- downloadHandler(filename=function() "taxonsampling_result.rds", content=function(file) {req(state$result); saveRDS(state$result, file)})
   output$download_selected <- downloadHandler(filename=function() "taxonsampling_selected.tsv", content=function(file) {req(state$result); write.table(state$result$outputMapping, file, sep="\t", quote=FALSE, row.names=FALSE)})
-  output$download_summary <- downloadHandler(filename=function() paste0("taxonsampling_comparison_", input$comparison_scope, ".tsv"), content=function(file) {write.table(filtered_comparison(), file, sep="\t", quote=FALSE, row.names=FALSE)})
+  output$download_summary <- downloadHandler(filename=function() paste0("taxonsampling_comparison_", input$representation_scope, "_", input$representation_rank, ".tsv"), content=function(file) {write.table(representation_comparison(), file, sep="\t", quote=FALSE, row.names=FALSE)})
 }
 
 shinyApp(ui, server)
