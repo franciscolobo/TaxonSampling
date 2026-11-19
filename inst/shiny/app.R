@@ -128,8 +128,14 @@ ui <- fluidPage(
                                       downloadButton("download_counts", "Download count object (.rds)")
                              ),
                              tabPanel("3. Sampling",
-                                      textInput("root", parameter_label("Root node ID (native backbone identifier)", "Root of the clade to sample from, using the native node ID in the observed nodes table."), ""),
-                                      helpText("Use an ID from the observed nodes table. OTT IDs in synthetic trees may use the ott: prefix."),
+                                      selectizeInput(
+                                        "root",
+                                        parameter_label("Sampling root", "Search the observed taxonomy by scientific name or native node ID. Only nodes present in the prepared input taxonomy can be used as sampling roots."),
+                                        choices=NULL, selected=NULL,
+                                        options=list(placeholder="Prepare input counts, then search by name or ID...",
+                                                     maxOptions=50, create=FALSE, openOnFocus=FALSE)
+                                      ),
+                                      helpText("Search by taxon name or native ID (e.g., Metazoa or 33208). Results are limited to nodes in the prepared input taxonomy."),
                                       numericInput("m", parameter_label("Number of observations", "Requested number of taxon/sequence observations to select. Some strategies may return fewer."), 100, min=1, step=1),
                                       selectInput("method", parameter_label("Method", "Diversity prioritizes representation across the reference hierarchy; balanced is experimental and may undersample."), c("Diversity"="diversity", "Balanced (experimental)"="balanced")),
                                       selectInput("randomize", parameter_label("Randomization", "No: deterministic selection; Yes: randomized selection; After first round: randomize subsequent selection rounds."), c("After first round"="after_first_round", "Yes"="yes", "No"="no")),
@@ -231,6 +237,14 @@ ui <- fluidPage(
 
                                               p("Metrics use the complete set of groups at the rank selected here; the maximum plotted groups setting does not affect calculations."),
                                               p("Hill q=0 measures represented groups; q=1 is the effective Shannon diversity; q=2 emphasizes dominant groups. JSD (base 2; 0–1) measures distance from the reference frequency distribution."),
+                                              h4("Sampling quality at selected rank"),
+                                              uiOutput("sampling_quality_summary"),
+                                              h4("Divergence across taxonomic ranks"),
+                                              p("Jensen–Shannon divergence (bits; lower is closer to the reference). Ranks are ordered categories, not equal evolutionary distances. Only ranks with positive counts in all three datasets are shown."),
+                                              plotlyOutput("diversity_rank_comparison", height="420px"),
+                                              DTOutput("diversity_rank_table"),
+                                              tags$hr(),
+                                              h4("Detailed metrics for selected rank"),
                                               DTOutput("diversity_metrics_table"),
                                               downloadButton("download_diversity_metrics", "Download metrics (.tsv)"),
                                               h4("Effective diversity (Hill q=1)"),
@@ -501,6 +515,7 @@ server <- function(input, output, session) {
       state$db <- normalizePath(path, mustWork=TRUE)
       .ts_save_paths(workspace=trimws(input$setup_dir), database=state$db)
       state$counts <- NULL; state$result <- NULL; state$sampled_root <- NULL
+      updateSelectizeInput(session, "root", choices=character(0), selected=character(0), server=TRUE)
       updateTextInput(session, "db_path", value=state$db)
       state$message <- paste("Sampling backbone loaded:", state$db)
     }, error=report_error)
@@ -595,8 +610,28 @@ server <- function(input, output, session) {
         stop("get_counts() returned an unexpected result; verify the installed TaxonSampling version.", call.=FALSE)
       }
       state$counts <- counts; state$result <- NULL; state$sampled_root <- NULL
-      roots <- counts$nodes$id[is.na(counts$nodes$parent) | !(counts$nodes$parent %in% counts$nodes$id) | counts$nodes$parent == counts$nodes$id]
-      if (length(roots)) updateTextInput(session, "root", value=as.character(roots[1]))
+      # Server-side Selectize: search by taxon name, rank or native ID without
+      # transferring the full observed-node list to the browser.
+      observed <- counts$nodes
+      native_ids <- as.character(observed$id)
+      taxon_names <- as.character(observed$name)
+      taxon_ranks <- as.character(observed$rank)
+      taxon_names[is.na(taxon_names) | !nzchar(trimws(taxon_names))] <- "Unnamed taxon"
+      taxon_ranks[is.na(taxon_ranks) | !nzchar(trimws(taxon_ranks))] <- "unranked"
+      valid <- !is.na(native_ids) & nzchar(native_ids)
+      native_ids <- native_ids[valid]
+      labels <- paste0(taxon_names[valid], " [", taxon_ranks[valid], "] — ", native_ids)
+      # IDs are unique in the observed taxonomy; guard against duplicate rows.
+      unique_ids <- !duplicated(native_ids)
+      choices <- stats::setNames(native_ids[unique_ids], labels[unique_ids])
+      roots <- as.character(observed$id[
+        is.na(observed$parent) |
+          !(observed$parent %in% observed$id) |
+          observed$parent == observed$id
+      ])
+      selected_root <- if (length(roots)) roots[1] else if (length(native_ids)) native_ids[1] else character(0)
+      updateSelectizeInput(session, "root", choices=choices,
+                           selected=selected_root, server=TRUE)
       state$message <- sprintf("Counts prepared: %s mapped taxon/sequence pairs; %s observed nodes; %s unmapped IDs.", nrow(counts$ids_df), nrow(counts$nodes), length(counts$unmapped_ids))
       log_setup(state$message)
     }, error=function(e) {
@@ -611,7 +646,7 @@ server <- function(input, output, session) {
       req(state$counts)
       if (input$method == "balanced" && input$randomize == "after_first_round") stop("Balanced sampling does not support 'after_first_round'.")
       root <- trimws(input$root)
-      if (!nzchar(root)) stop("Enter a root node ID")
+      if (!nzchar(root)) stop("Select a sampling root from the searchable observed taxonomy.")
       if (!root %in% state$counts$nodes$id) stop("Root must be an ID in the observed nodes table")
       set.seed(as.integer(input$seed))
       result <- TaxonSampling::run_TS(
@@ -673,13 +708,19 @@ server <- function(input, output, session) {
     if (length(db_label) != 1L || is.na(db_label) || !nzchar(db_label)) db_label <- "Reference"
     n_input <- if (is.null(state$counts)) "—" else format(nrow(state$counts$ids_df), big.mark=",")
     n_clade <- if (is.null(state$counts)) NULL else input_observations_in_clade()
-    n_sample <- if (is.null(state$result)) "—" else format(nrow(state$result$outputMapping), big.mark=",")
+    n_sample_raw <- if (is.null(state$result)) NULL else nrow(state$result$outputMapping)
+    n_sample <- if (is.null(n_sample_raw)) "—" else format(n_sample_raw, big.mark=",")
+    n_input_raw <- if (is.null(state$counts)) NULL else nrow(state$counts$ids_df)
+    clade_note <- if (is.null(state$counts)) "Generate counts" else if (is.null(n_clade)) "Choose a valid sampling root" else
+      if (!is.null(n_input_raw) && n_input_raw > 0) sprintf("%.1f%% of input observations", 100 * n_clade / n_input_raw) else "No input observations"
+    sample_note <- if (is.null(n_sample_raw)) "Run sampling" else if (!is.null(n_clade) && n_clade > 0)
+      sprintf("%.1f%% of eligible observations", 100 * n_sample_raw / n_clade) else "Selected records"
     tags$div(class="ts-session-grid",
              summary_card("REFERENCE", db_label, if (is.null(state$db)) "Load a taxonomy" else "Database loaded"),
              summary_card("INPUT OBSERVATIONS", n_input, if (is.null(state$counts)) "Generate counts" else "Mapped input records"),
              summary_card("IN SAMPLING CLADE", if (is.null(n_clade)) "—" else format(n_clade, big.mark=","),
-                          if (is.null(state$counts)) "Generate counts" else if (is.null(n_clade)) "Choose a valid sampling root" else "Input records under selected root"),
-             summary_card("SAMPLED OBSERVATIONS", n_sample, if (is.null(state$result)) "Run sampling" else "Selected records"))
+                          clade_note),
+             summary_card("SAMPLED OBSERVATIONS", n_sample, sample_note))
   })
   output$run_summary <- renderUI({
     req(state$result)
@@ -862,6 +903,70 @@ server <- function(input, output, session) {
                   "All three datasets must have positive counts at the selected rank."))
     ts_diversity_metrics(d, input$diversity_rank)
   })
+  output$sampling_quality_summary <- renderUI({
+    d <- diversity_metrics_data()
+    ref <- d[d$dataset == "Reference", , drop=FALSE]
+    inp <- d[d$dataset == "Biased database", , drop=FALSE]
+    smp <- d[d$dataset == "Sampled set", , drop=FALSE]
+    validate(need(nrow(ref) == 1L && nrow(inp) == 1L && nrow(smp) == 1L,
+                  "Sampling quality metrics are not available."))
+    before <- inp$jsd_vs_reference[[1]]
+    after <- smp$jsd_vs_reference[[1]]
+    pct <- if (is.finite(before) && before > 0) 100 * (1 - after / before) else NA_real_
+    verdict <- if (!is.finite(pct)) "Relative change undefined (input JSD = 0)." else
+      if (pct > 0) sprintf("%.1f%% lower divergence after sampling", pct) else
+        if (pct < 0) sprintf("%.1f%% higher divergence after sampling", abs(pct)) else "No change in divergence"
+    tags$div(
+      tags$div(class="ts-run-grid",
+               summary_card("INPUT JSD", sprintf("%.4f", before), "Original input vs reference"),
+               summary_card("SAMPLED JSD", sprintf("%.4f", after), verdict),
+               summary_card("INPUT GROUPS", format(inp$groups_present[[1]], big.mark=","), "Groups represented at this rank"),
+               summary_card("SAMPLED GROUPS", format(smp$groups_present[[1]], big.mark=","),
+                            sprintf("of %s reference groups", format(ref$groups_present[[1]], big.mark=",")))
+      ),
+      tags$p("This is a descriptive rank-specific comparison, not a statistical significance test.",
+             style="font-size:12px;color:#52677b")
+    )
+  })
+
+  # Compute rank-wise divergence from the full distribution at each rank,
+  # never from the top-N groups displayed in scatterplots.
+  rank_divergence_data <- reactive({
+    req(state$result)
+    scope <- input$diversity_scope
+    available <- available_ranks(scope)
+    ranks <- intersect(rank_order, available)
+    rows <- lapply(ranks, function(r) {
+      d <- tryCatch(filtered_comparison(scope, r), error=function(e) NULL)
+      if (is.null(d) || !nrow(d) ||
+          any(colSums(d[, c("background", "input", "sampled"), drop=FALSE]) <= 0)) return(NULL)
+      m <- tryCatch(ts_diversity_metrics(d, r), error=function(e) NULL)
+      if (is.null(m)) return(NULL)
+      data.frame(rank=r,
+                 input_jsd=m$jsd_vs_reference[m$dataset == "Biased database"],
+                 sampled_jsd=m$jsd_vs_reference[m$dataset == "Sampled set"],
+                 input_groups=m$groups_present[m$dataset == "Biased database"],
+                 sampled_groups=m$groups_present[m$dataset == "Sampled set"])
+    })
+    out <- do.call(rbind, rows)
+    validate(need(!is.null(out) && nrow(out) > 0,
+                  "No comparable taxonomic ranks with positive counts in all datasets."))
+    out$rank <- factor(out$rank, levels=rank_order, ordered=TRUE)
+    out
+  })
+  output$diversity_rank_comparison <- plotly::renderPlotly({
+    d <- rank_divergence_data()
+    plotly::plot_ly(d, x=~rank, y=~input_jsd, name="Input", type="scatter", mode="lines+markers") |>
+      plotly::add_trace(y=~sampled_jsd, name="Sampled", mode="lines+markers") |>
+      plotly::layout(xaxis=list(title="Taxonomic rank", type="category"),
+                     yaxis=list(title="Jensen–Shannon divergence (bits)", range=c(0,1)),
+                     legend=list(orientation="h"))
+  })
+  output$diversity_rank_table <- renderDT({
+    DT::datatable(rank_divergence_data(), rownames=FALSE,
+                  options=list(dom="t", scrollX=TRUE))
+  })
+
   output$diversity_metrics_table <- renderDT({
     datatable(diversity_metrics_data(), rownames=FALSE,
               options=list(dom='t', scrollX=TRUE),
